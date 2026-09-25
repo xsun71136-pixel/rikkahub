@@ -79,7 +79,6 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.components.ui.RikkaConfirmDialog
 import me.rerere.rikkahub.ui.components.ui.Switch
 import me.rerere.rikkahub.ui.context.LocalToaster
-import me.rerere.rikkahub.utils.readClipboardText
 import org.koin.compose.koinInject
 
 /**
@@ -123,7 +122,8 @@ fun ProviderKeyManagerSheet(
     }
 
     var editingKey by remember { mutableStateOf<ProviderApiKey?>(null) }
-    var importText by remember { mutableStateOf<String?>(null) }
+    // [自定义修改] 导入对话框不再自动读取剪贴板，默认空白，由用户手动粘贴
+    var showImportDialog by remember { mutableStateOf(false) }
     var deletingKey by remember { mutableStateOf<ProviderApiKey?>(null) }
 
     fun updateKeys(updatedKeys: List<ProviderApiKey>) {
@@ -233,7 +233,7 @@ fun ProviderKeyManagerSheet(
                     )
                 }
                 OutlinedButton(
-                    onClick = { importText = context.readClipboardText() },
+                    onClick = { showImportDialog = true },
                     modifier = Modifier.weight(1f),
                 ) {
                     Icon(HugeIcons.Clipboard, contentDescription = null)
@@ -295,6 +295,10 @@ fun ProviderKeyManagerSheet(
                                 )
                             },
                             onToggle = { enabled ->
+                                // [自定义修改] 手动打开开关 = 同时恢复健康停用/冷却标记
+                                if (enabled) {
+                                    KeyRotationPolicy.clearKeyHealth(providerId, key.value)
+                                }
                                 updateKeys(keys.map {
                                     if (it.id == key.id) it.copy(enabled = enabled) else it
                                 })
@@ -326,10 +330,10 @@ fun ProviderKeyManagerSheet(
     }
 
     // ---- 粘贴导入对话框 ----
-    importText?.let { initial ->
+    if (showImportDialog) {
         ProviderApiKeyImportDialog(
-            initialText = initial,
-            onDismissRequest = { importText = null },
+            initialText = "",
+            onDismissRequest = { showImportDialog = false },
             onImport = { raw ->
                 val existingValues = keys.map { it.value }.toSet()
                 val imported = splitProviderApiKeys(raw)
@@ -349,7 +353,7 @@ fun ProviderKeyManagerSheet(
                         ),
                         type = ToastType.Success,
                     )
-                    importText = null
+                    showImportDialog = false
                 }
             },
         )
@@ -502,7 +506,13 @@ private fun ProviderApiKeyCard(
                     maxLines = 1,
                 )
             }
-            Switch(checked = apiKey.enabled, onCheckedChange = onToggle)
+            // [自定义修改] 健康停用（无效/额度）时开关同步显示为关闭，避免“写着停用开关还开着”
+            val suspendedByHealth =
+                health != null && health.state != KeyHealthState.COOLDOWN
+            Switch(
+                checked = apiKey.enabled && !suspendedByHealth,
+                onCheckedChange = onToggle,
+            )
             CompactIconButton(
                 onClick = { runTest() },
                 enabled = testModel != null && !testing,

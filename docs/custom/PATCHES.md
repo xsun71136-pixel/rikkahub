@@ -90,6 +90,15 @@
 > `.github/workflows/daily-build.yml` 未改动：其 `echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json`
 > 步骤在 secret 缺失时只会写一个空文件，插件已移除后无影响。
 
+### 第三轮精修（2026-09-25）：停用状态与开关联动 + 导入隐私
+
+| 文件 | 位置 | 修改 | 意图 |
+|------|------|------|------|
+| `ext/keys/ProviderKeyManagerSheet.kt` | `ProviderApiKeyCard` 开关行 | `Switch(checked)` 改为 `apiKey.enabled && !suspendedByHealth`（COOLDOWN 不算停用） | 健康停用时开关同步关闭，消除"写着停用开关还开着"的不一致 |
+| 同上 | Key 列表项 `onToggle` | 打开时先 `KeyRotationPolicy.clearKeyHealth(providerId, key.value)` | 手动打开开关 = 恢复该 Key（与点徽标等效） |
+| 同上 | 粘贴导入按钮/对话框 | `importText: String?` 改为 `showImportDialog: Boolean`，`initialText = ""`；删除 `readClipboardText` 调用及其 import | 导入框不再自动读剪贴板，默认空白，仅用户手动粘贴才有内容 |
+| `res/values/strings.xml`、`res/values-zh/strings.xml` | `setting_provider_page_multi_key_health_caption` | 补"开关同步关闭 / 重新打开开关即可恢复"描述 | 文案与新交互一致 |
+
 ## 回归步骤（上游 Sync 后）
 
 1. `git merge upstream/master`（或 Sync fork 后重新下载）。

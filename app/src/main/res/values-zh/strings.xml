@@ -1443,6 +1443,6 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="setting_provider_page_multi_key_restore_all">全部恢复</string>
   <string name="setting_provider_page_multi_key_health_restored">已恢复该 Key</string>
   <string name="setting_provider_page_multi_key_health_restored_all">已恢复全部 Key</string>
-  <string name="setting_provider_page_multi_key_health_caption">无效或无额度的 Key 会被自动停用并跳过；点击状态标签即可恢复。</string>
+  <string name="setting_provider_page_multi_key_health_caption">无效或无额度的 Key 会被自动停用（开关同步关闭）并跳过；点击状态标签或重新打开开关即可恢复。</string>
   <string name="setting_provider_page_multi_key_test_needs_model">添加聊天模型后，才能测试单个 Key。</string>
 </resources>

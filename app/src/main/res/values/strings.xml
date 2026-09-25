@@ -1447,6 +1447,6 @@
   <string name="setting_provider_page_multi_key_restore_all">Restore all</string>
   <string name="setting_provider_page_multi_key_health_restored">Key restored</string>
   <string name="setting_provider_page_multi_key_health_restored_all">All keys restored</string>
-  <string name="setting_provider_page_multi_key_health_caption">Invalid or out-of-quota keys are suspended automatically and skipped. Tap the status to restore a key.</string>
+  <string name="setting_provider_page_multi_key_health_caption">Invalid or out-of-quota keys are suspended automatically (the switch turns off) and skipped. Tap the status or switch it back on to restore a key.</string>
   <string name="setting_provider_page_multi_key_test_needs_model">Add a chat model first to test individual keys.</string>
 </resources>
