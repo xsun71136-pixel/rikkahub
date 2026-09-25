@@ -478,17 +478,9 @@ private fun ChatPageContent(
                     }
                 },
                 onUpdateMessage = { newNode ->
-                    vm.updateConversation(
-                        conversation.copy(
-                            messageNodes = conversation.messageNodes.map { node ->
-                                if (node.id == newNode.id) {
-                                    newNode
-                                } else {
-                                    node
-                                }
-                            }
-                        ))
-                    vm.saveConversationAsync()
+                    // [自定义修改] 分支切换改走服务层安全路径：读取新鲜状态、校验索引并即时落库，
+                    // 避免用 UI 陈旧快照整段覆盖流式中的会话状态（docs/custom/01-message-resilience.md）
+                    vm.selectMessageNode(newNode.id, newNode.selectIndex)
                 },
                 onClickSuggestion = { suggestion ->
                     inputState.editingMessage = null

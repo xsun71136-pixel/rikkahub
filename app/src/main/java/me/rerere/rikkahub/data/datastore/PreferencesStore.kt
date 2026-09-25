@@ -580,6 +580,10 @@ data class NetworkSetting(
     val proxyUsername: String = "",
     val proxyPassword: String = "",
     val enableAutoRetry: Boolean = true,
+    // [自定义修改] 高级自动重试配置（docs/custom/02-auto-retry.md）。
+    // enableAutoRetry 保留为总开关；本字段带默认值，旧配置 JSON 反序列化自动兼容。
+    val autoRetry: me.rerere.rikkahub.ext.retry.AutoRetryConfig =
+        me.rerere.rikkahub.ext.retry.AutoRetryConfig(),
 )
 
 @Serializable

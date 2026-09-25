@@ -166,6 +166,13 @@ class ChatService(
     // workspace 系统提示注入 (依赖 workspaceRepository, 故在类内构造)
     private val workspaceReminderTransformer = WorkspaceReminderTransformer(workspaceRepository)
 
+    // [自定义修改] 流式草稿落库器：生成期间节流保存，进程死亡最多丢 ~2.5s 内容
+    // （docs/custom/01-message-resilience.md）
+    private val draftSaver = me.rerere.rikkahub.ext.resilience.StreamDraftSaver(appScope, conversationRepo)
+
+    /** 崩溃兜底：由 CrashHandler 在进程崩溃前同步调用，尽最大努力保住已生成内容。 */
+    fun flushAllDraftsBlocking(timeoutMs: Long = 1_500L) = draftSaver.flushAllBlocking(timeoutMs)
+
     private val sessionManager = ConversationSessionManager(
         scope = appScope,
         createInitialConversation = { id ->
@@ -202,7 +209,11 @@ class ChatService(
     private val _generationDoneFlow = MutableSharedFlow<Uuid>()
     val generationDoneFlow: SharedFlow<Uuid> = _generationDoneFlow.asSharedFlow()
 
-    fun cleanup() = runCatching { sessionManager.cleanup() }
+    fun cleanup() = runCatching {
+        // [自定义修改] 应用退出清理前先把在途草稿写入 DB
+        draftSaver.flushAllBlocking(800)
+        sessionManager.cleanup()
+    }
 
     private fun onSessionGenerationFinished(session: ConversationSession, cause: Throwable?) {
         if (cause != null) session.messageQueue.pause()
@@ -678,6 +689,11 @@ class ChatService(
                 outputTransformers = outputTransformers,
                 tools = tools,
             ).onCompletion {
+                // [自定义修改] 生成结束：先停掉草稿节流（等待在途写入完成），再走上游全量终态保存。
+                // NonCancellable：取消路径上也要完成这一步，避免草稿写入与终态保存乱序。
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    runCatching { draftSaver.cancelAndAwait(conversationId) }
+                }
                 // 可能被取消了，或者意外结束，兜底更新
                 val updatedConversation = session.finishGeneration { conversation ->
                     saveConversation(conversationId, conversation)
@@ -698,6 +714,8 @@ class ChatService(
                         val updatedConversation = getConversationFlow(conversationId).value
                             .updateCurrentMessages(chunk.messages)
                         updateConversation(conversationId, updatedConversation)
+                        // [自定义修改] 节流草稿落库，进程被杀/崩溃时最多丢一个窗口的内容
+                        draftSaver.schedule(conversationId, updatedConversation)
 
                         // 通知等边缘副作用由 ChatNotificationManager 消费；
                         // tryEmit 不挂起，事件丢失只影响单次通知更新，不能反压生成链
@@ -758,9 +776,10 @@ class ChatService(
                 }
 
                 // Remove messages that still have unresolved tool approvals.
+                // [自定义修改] clamp selectIndex，防止 -1 等悬空索引（docs/custom/01-message-resilience.md）
                 return@mapIndexed node.copy(
                     messages = node.messages.filter { it.id != node.currentMessage.id },
-                    selectIndex = node.selectIndex - 1
+                    selectIndex = (node.selectIndex - 1).coerceAtLeast(0)
                 )
             }
             node

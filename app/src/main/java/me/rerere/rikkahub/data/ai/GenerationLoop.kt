@@ -40,6 +40,8 @@ import me.rerere.rikkahub.data.ai.transformers.transforms
 import me.rerere.rikkahub.data.ai.transformers.visualTransforms
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findProvider
+import me.rerere.rikkahub.ext.retry.AutoRetryConfig
+import me.rerere.rikkahub.ext.retry.RetryPolicy
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantMemory
 import java.io.File
@@ -54,8 +56,7 @@ import kotlin.uuid.Uuid
 private const val TAG = "GenerationHandler"
 private const val MAX_TOOL_OUTPUT_CHARS = 32 * 1024
 private const val TOOL_OUTPUT_PREVIEW_CHARS = 4 * 1024
-private const val MAX_PROVIDER_NETWORK_RETRIES = 3
-private const val INITIAL_PROVIDER_RETRY_DELAY_MS = 1_000L
+// [自定义修改] 重试次数/延迟改由 AutoRetryConfig 配置驱动（docs/custom/02-auto-retry.md）
 
 private class StreamChunkHandlingException(cause: Throwable) : RuntimeException(cause)
 
@@ -450,6 +451,7 @@ class GenerationLoop(
                             retryCount = retryCount,
                             processingStatus = processingStatus,
                             enabled = settings.networkSetting.enableAutoRetry,
+                            retryConfig = settings.networkSetting.autoRetry,
                         )
                     }
                 }
@@ -457,6 +459,7 @@ class GenerationLoop(
                 val result = executeProviderRequestWithRetry(
                     processingStatus = processingStatus,
                     enabled = settings.networkSetting.enableAutoRetry,
+                    retryConfig = settings.networkSetting.autoRetry,
                 ) {
                     providerImpl.generateText(
                         providerSetting = provider,
@@ -475,6 +478,7 @@ class GenerationLoop(
     private suspend fun <T> executeProviderRequestWithRetry(
         processingStatus: MutableStateFlow<String?>,
         enabled: Boolean,
+        retryConfig: AutoRetryConfig = AutoRetryConfig(),
         block: suspend () -> T,
     ): T {
         var retryCount = 0
@@ -487,6 +491,7 @@ class GenerationLoop(
                     retryCount = retryCount,
                     processingStatus = processingStatus,
                     enabled = enabled,
+                    retryConfig = retryConfig,
                 )
             }
         }
@@ -497,30 +502,42 @@ class GenerationLoop(
         retryCount: Int,
         processingStatus: MutableStateFlow<String?>,
         enabled: Boolean,
+        retryConfig: AutoRetryConfig = AutoRetryConfig(),
     ): Int {
         // 用户主动停止生成时，底层连接也可能以 IOException("canceled") 收尾；
         // 先检查协程状态，确保取消不会被当作网络波动重新拉起。
         currentCoroutineContext().ensureActive()
-        if (!enabled || error !is IOException || retryCount >= MAX_PROVIDER_NETWORK_RETRIES) {
+        // [自定义修改] 使用 RetryPolicy 综合判定（HTTP 状态码/重试关键词/停止关键词），
+        // 不再只认 IOException——上游 provider 的 HTTP 失败抛普通 Exception，
+        // 导致 429/5xx 从不触发重试。见 docs/custom/02-auto-retry.md
+        val config = retryConfig.clamped()
+        if (!enabled || retryCount >= config.maxRetries || !RetryPolicy.shouldRetry(error, config)) {
             throw error
         }
 
         val nextRetryCount = retryCount + 1
-        val retryDelay = INITIAL_PROVIDER_RETRY_DELAY_MS shl retryCount
+        val retryDelay = RetryPolicy.backoffDelay(retryCount, config)
         processingStatus.value = context.getString(
             R.string.chat_generation_network_retrying,
-            getNetworkErrorMessage(error),
+            getRetryErrorMessage(error),
             nextRetryCount,
-            MAX_PROVIDER_NETWORK_RETRIES,
+            config.maxRetries,
         )
         Log.w(
             TAG,
-            "Provider connection failed, retrying in ${retryDelay}ms " +
-                    "($nextRetryCount/$MAX_PROVIDER_NETWORK_RETRIES)",
+            "Provider request failed, retrying in ${retryDelay}ms " +
+                    "($nextRetryCount/${config.maxRetries})",
             error,
         )
         delay(retryDelay)
         return nextRetryCount
+    }
+
+    // [自定义修改] 非 IOException 的可重试错误（如 HTTP 429/5xx）也需要一句可读的状态提示
+    private fun getRetryErrorMessage(error: Throwable): String {
+        if (error is IOException) return getNetworkErrorMessage(error)
+        return error.message?.lineSequence()?.firstOrNull()?.take(80)
+            ?: error.javaClass.simpleName
     }
 
     private fun getNetworkErrorMessage(error: IOException): String {

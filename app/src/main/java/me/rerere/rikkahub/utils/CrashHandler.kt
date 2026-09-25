@@ -11,11 +11,19 @@ private const val KEY_STACKTRACE = "stacktrace"
 private const val MAX_STACKTRACE_LENGTH = 8000
 
 object CrashHandler {
-    fun install(context: Context) {
+    /**
+     * @param onCrash [自定义修改] 崩溃时的应急回调（限时同步执行，用于抢救未落盘的生成内容，
+     * 见 docs/custom/01-message-resilience.md）。回调内部必须自行捕获异常。
+     */
+    fun install(context: Context, onCrash: (() -> Unit)? = null) {
         val appContext = context.applicationContext
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             Log.e(TAG, "Uncaught exception on thread ${thread.name}", throwable)
+            if (onCrash != null) {
+                runCatching { onCrash() }
+                    .onFailure { Log.w(TAG, "onCrash callback failed", it) }
+            }
             markCrashed(appContext, thread, throwable)
             defaultHandler?.uncaughtException(thread, throwable)
         }

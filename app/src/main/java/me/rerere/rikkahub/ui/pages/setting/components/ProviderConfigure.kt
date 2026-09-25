@@ -31,8 +31,12 @@ import androidx.compose.ui.unit.dp
 import com.dokar.sonner.ToastType
 import me.rerere.ai.provider.ClaudePromptCacheTtl
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.getProviderApiKeys
+import me.rerere.ai.provider.getProviderKeyStrategy
+import me.rerere.ai.provider.isMultiKeyEnabled
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.DEFAULT_PROVIDERS
+import me.rerere.rikkahub.ext.keys.ProviderMultiKeySection
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.View
 import me.rerere.hugeicons.stroke.ViewOff
@@ -100,24 +104,32 @@ fun ProviderSetting.convertTo(type: KClass<out ProviderSetting>): ProviderSettin
     }
     val convertedBaseUrl = sourceBaseUrl.convertToTargetBaseUrl(targetDefaultBaseUrl)
 
+    // [自定义修改] 类型转换时保留多 Key 配置（docs/custom/03-multi-key.md）
+    val multiKeyEnabled = this.isMultiKeyEnabled()
+    val apiKeys = this.getProviderApiKeys()
+    val keyStrategy = this.getProviderKeyStrategy()
+
     return when (type) {
         ProviderSetting.OpenAI::class -> ProviderSetting.OpenAI(
             id = this.id, enabled = this.enabled, name = this.name, models = this.models,
             balanceOption = this.balanceOption, builtIn = this.builtIn,
             description = this.description, shortDescription = this.shortDescription,
-            apiKey = apiKey, baseUrl = convertedBaseUrl
+            apiKey = apiKey, baseUrl = convertedBaseUrl,
+            multiKeyEnabled = multiKeyEnabled, apiKeys = apiKeys, keyStrategy = keyStrategy,
         )
         ProviderSetting.Google::class -> ProviderSetting.Google(
             id = this.id, enabled = this.enabled, name = this.name, models = this.models,
             balanceOption = this.balanceOption, builtIn = this.builtIn,
             description = this.description, shortDescription = this.shortDescription,
-            apiKey = apiKey, baseUrl = convertedBaseUrl
+            apiKey = apiKey, baseUrl = convertedBaseUrl,
+            multiKeyEnabled = multiKeyEnabled, apiKeys = apiKeys, keyStrategy = keyStrategy,
         )
         ProviderSetting.Claude::class -> ProviderSetting.Claude(
             id = this.id, enabled = this.enabled, name = this.name, models = this.models,
             balanceOption = this.balanceOption, builtIn = this.builtIn,
             description = this.description, shortDescription = this.shortDescription,
-            apiKey = apiKey, baseUrl = convertedBaseUrl
+            apiKey = apiKey, baseUrl = convertedBaseUrl,
+            multiKeyEnabled = multiKeyEnabled, apiKeys = apiKeys, keyStrategy = keyStrategy,
         )
         else -> error("Unsupported provider type: $type")
     }
@@ -229,6 +241,12 @@ private fun ProviderConfigureOpenAI(
         },
     )
 
+    // [自定义修改] 多 Key 模式（docs/custom/03-multi-key.md）
+    ProviderMultiKeySection(
+        provider = provider,
+        onEdit = { updated -> onEdit(updated as ProviderSetting.OpenAI) },
+    )
+
     OutlinedTextField(
         value = provider.baseUrl,
         onValueChange = { onEdit(provider.copy(baseUrl = it.trim())) },
@@ -324,6 +342,12 @@ private fun ProviderConfigureClaude(
                 Icon(if (keyVisible) HugeIcons.ViewOff else HugeIcons.View, contentDescription = null)
             }
         },
+    )
+
+    // [自定义修改] 多 Key 模式（docs/custom/03-multi-key.md）
+    ProviderMultiKeySection(
+        provider = provider,
+        onEdit = { updated -> onEdit(updated as ProviderSetting.Claude) },
     )
 
     OutlinedTextField(
@@ -436,6 +460,12 @@ private fun ProviderConfigureGoogle(
                     Icon(if (keyVisible) HugeIcons.ViewOff else HugeIcons.View, contentDescription = null)
                 }
             },
+        )
+
+        // [自定义修改] 多 Key 模式（docs/custom/03-multi-key.md）
+        ProviderMultiKeySection(
+            provider = provider,
+            onEdit = { updated -> onEdit(updated as ProviderSetting.Google) },
         )
     }
 

@@ -40,6 +40,7 @@ import me.rerere.rikkahub.utils.DatabaseUtil
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.workspace.WorkspaceManager
 import org.koin.android.ext.android.get
+import org.koin.java.KoinJavaComponent.getKoin
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.androidx.workmanager.koin.workManagerFactory
@@ -78,7 +79,14 @@ class RikkaHubApp : Application() {
         DatabaseUtil.setCursorWindowSize(32 * 1024 * 1024)
 
         // install crash handler
-        CrashHandler.install(this)
+        // [自定义修改] 崩溃时应急保存所有生成中会话的草稿（docs/custom/01-message-resilience.md）
+        // 用 getOrNull：ChatService 尚未创建时不存在草稿，避免在崩溃路径上初始化依赖图
+        CrashHandler.install(this) {
+            runCatching {
+                getKoin().getOrNull<me.rerere.rikkahub.service.ChatService>()
+                    ?.flushAllDraftsBlocking(1500)
+            }
+        }
 
         // delete temp files
         deleteTempFiles()
@@ -100,6 +108,15 @@ class RikkaHubApp : Application() {
 
         // Increment launch count
         incrementLaunchCount()
+
+        // [自定义修改] 持续同步多 Key 轮换策略注册表（docs/custom/03-multi-key.md）
+        get<AppScope>().launch {
+            runCatching {
+                get<SettingsStore>().settingsFlow.collect { currentSettings ->
+                    me.rerere.ai.util.KeyRotationPolicy.sync(currentSettings.providers)
+                }
+            }
+        }
 
         // Composer.setDiagnosticStackTraceMode(ComposeStackTraceMode.Auto)
     }

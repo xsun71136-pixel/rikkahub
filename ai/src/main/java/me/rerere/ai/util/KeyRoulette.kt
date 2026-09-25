@@ -3,7 +3,51 @@ package me.rerere.ai.util
 import android.content.Context
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import me.rerere.ai.provider.ProviderKeyStrategy
+import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.getProviderKeyStrategy
+import me.rerere.ai.provider.isMultiKeyEnabled
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+
+/**
+ * [自定义修改] 多 Key 轮换策略注册表（docs/custom/03-multi-key.md）。
+ *
+ * app 层根据 Settings 同步每个启用了多 Key 的 provider 的策略；
+ * 未注册的 provider 返回 null → 轮盘保持上游原行为（LRU/随机），零回归。
+ */
+object KeyRotationPolicy {
+    private val strategies = ConcurrentHashMap<String, ProviderKeyStrategy>()
+    private val roundRobinCounters = ConcurrentHashMap<String, AtomicInteger>()
+
+    fun sync(providers: List<ProviderSetting>) {
+        val active = providers
+            .filter { it.isMultiKeyEnabled() }
+            .associate { it.id.toString() to it.getProviderKeyStrategy() }
+        strategies.keys.retainAll(active.keys.toSet())
+        strategies.putAll(active)
+    }
+
+    fun strategyOf(providerId: String): ProviderKeyStrategy? =
+        if (providerId.isEmpty()) null else strategies[providerId]
+
+    internal fun nextRoundRobinIndex(providerId: String): Int {
+        val counter = roundRobinCounters.getOrPut(providerId) { AtomicInteger(0) }
+        return counter.getAndUpdate { if (it == Int.MAX_VALUE) 0 else it + 1 }
+    }
+
+    /** 按注册策略选 Key；返回 null 表示该 provider 未启用多 Key 策略，走原逻辑。 */
+    internal fun pickByStrategy(keys: List<String>, providerId: String): String? {
+        if (keys.isEmpty()) return null
+        return when (strategyOf(providerId)) {
+            ProviderKeyStrategy.RANDOM -> keys.random()
+            ProviderKeyStrategy.ROUND_ROBIN ->
+                keys[Math.floorMod(nextRoundRobinIndex(providerId), keys.size)]
+            null -> null
+        }
+    }
+}
 
 interface KeyRoulette {
     fun next(keys: String, providerId: String = ""): String
@@ -32,6 +76,8 @@ private fun splitKey(key: String): List<String> {
 private class DefaultKeyRoulette : KeyRoulette {
     override fun next(keys: String, providerId: String): String {
         val keyList = splitKey(keys)
+        // [自定义修改] 多 Key 模式指定了策略时优先按策略选取
+        KeyRotationPolicy.pickByStrategy(keyList, providerId)?.let { return it }
         return if (keyList.isNotEmpty()) {
             keyList.random()
         } else {
@@ -56,6 +102,9 @@ private class LruKeyRoulette(
     override fun next(keys: String, providerId: String): String {
         val keyList = splitKey(keys)
         if (keyList.isEmpty()) return keys
+
+        // [自定义修改] 多 Key 模式指定了策略时优先按策略选取（跳过 LRU 记账）
+        KeyRotationPolicy.pickByStrategy(keyList, providerId)?.let { return it }
 
         synchronized(LruFileLock) {
             val now = System.currentTimeMillis()

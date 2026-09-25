@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.ui.pages.setting
 
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -49,6 +50,7 @@ import me.rerere.hugeicons.stroke.ViewOff
 import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.network.toProxyOrNull
+import me.rerere.rikkahub.ext.retry.AutoRetrySettingsSheet
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.Switch
@@ -85,6 +87,8 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
     var proxyPasswordDraft by remember { mutableStateOf("") }
     var proxyPasswordVisible by remember { mutableStateOf(false) }
     var proxyDialogVisible by remember { mutableStateOf(false) }
+    // [自定义修改] 高级自动重试配置弹窗（docs/custom/02-auto-retry.md）
+    var showAutoRetrySheet by remember { mutableStateOf(false) }
     val defaultUserAgent = "RikkaHub-Android/${BuildConfig.VERSION_NAME}"
     val proxyUrlInvalid = proxyUrlDraft.isNotBlank() && proxyUrlDraft.toProxyOrNull() == null
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -257,6 +261,14 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
         )
     }
 
+    // [自定义修改] 高级自动重试配置弹窗（docs/custom/02-auto-retry.md）
+    AutoRetrySettingsSheet(
+        visible = showAutoRetrySheet,
+        onDismissRequest = { showAutoRetrySheet = false },
+        settings = settings,
+        onUpdateSettings = { vm.updateSettings(it) },
+    )
+
     Scaffold(
         topBar = {
             LargeFlexibleTopAppBar(
@@ -287,6 +299,11 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
                         supportingContent = {
                             Text(stringResource(R.string.setting_page_preferences_network_auto_retry_desc))
                         },
+                        // [自定义修改] 点击/长按整行打开高级重试配置（长按为用户约定的快捷入口）
+                        modifier = Modifier.combinedClickable(
+                            onClick = { showAutoRetrySheet = true },
+                            onLongClick = { showAutoRetrySheet = true },
+                        ),
                         trailingContent = {
                             Switch(
                                 checked = settings.networkSetting.enableAutoRetry,

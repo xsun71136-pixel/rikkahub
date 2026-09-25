@@ -475,6 +475,40 @@ class ConversationRepository(
         }
     }
 
+    // ==== 流式草稿写入（自定义插件层钩子，见 docs/custom/01-message-resilience.md）====
+    // 生成期间由 StreamDraftSaver 调用：只动 message_node 表，跳过 FTS 索引，
+    // 生成结束时上游的全量 updateConversation 会重建索引。
+
+    /** 草稿全量替换某会话的节点行（首次草稿用）。 */
+    suspend fun replaceMessageNodesDraft(conversationId: Uuid, nodes: List<MessageNode>) {
+        database.withTransaction {
+            val conversationIdStr = conversationId.toString()
+            val keepIds = nodes.mapTo(HashSet()) { it.id.toString() }
+            messageNodeDAO.getNodesOfConversation(conversationIdStr).forEach { existing ->
+                if (existing.id !in keepIds) messageNodeDAO.deleteById(existing.id)
+            }
+            saveMessageNodes(conversationIdStr, nodes)
+        }
+    }
+
+    /** 草稿增量 upsert 单个节点。 */
+    suspend fun upsertMessageNodeDraft(conversationId: Uuid, node: MessageNode, index: Int) {
+        messageNodeDAO.insert(
+            MessageNodeEntity(
+                id = node.id.toString(),
+                conversationId = conversationId.toString(),
+                nodeIndex = index,
+                messages = JsonInstant.encodeToString(node.messages),
+                selectIndex = node.selectIndex,
+            )
+        )
+    }
+
+    /** 草稿清理已删除节点。 */
+    suspend fun deleteMessageNodeDraft(nodeId: Uuid) {
+        messageNodeDAO.deleteById(nodeId.toString())
+    }
+
     private suspend fun saveMessageNodes(conversationId: String, nodes: List<MessageNode>) {
         val entities = nodes.mapIndexed { index, node ->
             MessageNodeEntity(

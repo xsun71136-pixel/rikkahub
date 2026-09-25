@@ -29,6 +29,12 @@ fun ChatMessageBranchSelector(
     modifier: Modifier = Modifier,
     onUpdate: (MessageNode) -> Unit,
 ) {
+    // [自定义修改] 先钳制非法 selectIndex，后续显示与切换均基于有效索引（docs/custom/01-message-resilience.md）
+    val node = if (node.messages.isNotEmpty() && node.selectIndex !in node.messages.indices) {
+        node.copy(selectIndex = node.selectIndex.coerceIn(0, node.messages.lastIndex))
+    } else {
+        node
+    }
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,

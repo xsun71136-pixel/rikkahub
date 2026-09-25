@@ -118,7 +118,9 @@ fun ChatMessage(
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
 ) {
-    val message = node.messages[node.selectIndex]
+    // [自定义修改] 空节点直接跳过、clamp 索引防止陈旧/损坏状态导致组合期崩溃（docs/custom/01-message-resilience.md）
+    if (node.messages.isEmpty()) return
+    val message = node.messages[node.selectIndex.coerceIn(0, node.messages.lastIndex)]
     val settings = LocalSettings.current.displaySetting
     val chatFontFamily = LocalChatFontFamily.current ?: rememberChatFontFamily(settings)
     val textStyle = LocalTextStyle.current.copy(
