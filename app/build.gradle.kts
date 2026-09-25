@@ -73,7 +73,12 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            // [自定义修改] 签名配置缺失（local.properties 无有效条目）时降级为未签名产物，
+            // 而不是让 validateSigningRelease 直接失败（docs/custom/PATCHES.md）
+            val releaseSigningConfig = signingConfigs.getByName("release")
+            if (releaseSigningConfig.storeFile != null) {
+                signingConfig = releaseSigningConfig
+            }
             optimization {
                 enable = true
             }

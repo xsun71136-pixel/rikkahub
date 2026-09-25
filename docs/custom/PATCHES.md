@@ -73,7 +73,7 @@
 | 文件 | 修改 |
 |------|------|
 | `build.gradle.kts`（根） | 删除 `google.services`、`firebase.crashlytics` 两行 plugin alias |
-| `app/build.gradle.kts` | 删除两个 plugin alias + `// Firebase` 依赖块（bom/analytics/crashlytics）；版本号提升 `190 / 2.5.4-ext1` |
+| `app/build.gradle.kts` | 删除两个 plugin alias + `// Firebase` 依赖块（bom/analytics/crashlytics）；版本号提升 `190 / 2.5.4-ext1`；release `signingConfig` 改为**仅当 storeFile 已配置时才赋值**（secret 缺失时产出未签名包而不是构建失败） |
 | `gradle/libs.versions.toml` | 删除 google-services / firebase-bom / firebase-crashlytics 的 versions、libraries、plugins 条目 |
 | `di/AppModule.kt` | 删除 `Firebase.crashlytics` / `Firebase.analytics` 两个 single 与 firebase imports |
 | `di/ViewModelModule.kt` | ChatVM 构造删除 `analytics = get(),` |
