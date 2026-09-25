@@ -1326,6 +1326,8 @@
   <string name="setting_provider_page_test_tool_called">Called: %1$s  Args: %2$s</string>
   <string name="setting_provider_page_test_tool_not_called">Tool not called, response: %s</string>
   <string name="chat_generation_network_retrying">%1$s. Retrying (%2$d/%3$d)…</string>
+  <string name="chat_generation_key_switching">Key unavailable (%1$s). Switching to next key (%2$d/%3$d)…</string>
+  <string name="error_all_keys_suspended">All API keys are suspended (invalid or out of quota). Restore them in Provider → Key manager.</string>
   <string name="chat_generation_network_unknown_host">Unable to resolve server address</string>
   <string name="chat_generation_network_timeout">Connection timed out</string>
   <string name="chat_generation_network_unreachable">Unable to connect to server</string>
@@ -1411,10 +1413,13 @@
   <string name="auto_retry_reset_all">Reset all</string>
   <string name="auto_retry_save">Save</string>
   <string name="auto_retry_saved">Auto retry settings saved</string>
+  <string name="auto_retry_items_count">%1$d items</string>
+  <string name="auto_retry_expand">Expand</string>
+  <string name="auto_retry_collapse">Collapse</string>
   <string name="common_edit">Edit</string>
   <string name="setting_provider_page_multi_key_mode">Multi-Key mode</string>
   <string name="setting_provider_page_multi_key_mode_desc">Manage multiple keys separately and choose which ones are used for requests.</string>
-  <string name="setting_provider_page_multi_key_manager_with_count">Manage Keys (%1$d/%2$d enabled)</string>
+  <string name="setting_provider_page_multi_key_manager_with_count">Manage Keys (%1$d/%2$d available)</string>
   <string name="setting_provider_page_multi_key_manager">Key manager</string>
   <string name="setting_provider_page_multi_key_summary">%1$d/%2$d keys enabled</string>
   <string name="setting_provider_page_multi_key_strategy_random">Random</string>
@@ -1435,5 +1440,13 @@
   <string name="setting_provider_page_multi_key_delete_desc">Delete \"%1$s\"? This cannot be undone.</string>
   <string name="setting_provider_page_multi_key_test">Test</string>
   <string name="setting_provider_page_multi_key_test_failed">Test failed</string>
+  <string name="setting_provider_page_multi_key_test_success">Key works</string>
+  <string name="setting_provider_page_multi_key_health_invalid">Suspended · invalid</string>
+  <string name="setting_provider_page_multi_key_health_quota">Suspended · quota</string>
+  <string name="setting_provider_page_multi_key_health_cooldown">Cooling down · %1$s</string>
+  <string name="setting_provider_page_multi_key_restore_all">Restore all</string>
+  <string name="setting_provider_page_multi_key_health_restored">Key restored</string>
+  <string name="setting_provider_page_multi_key_health_restored_all">All keys restored</string>
+  <string name="setting_provider_page_multi_key_health_caption">Invalid or out-of-quota keys are suspended automatically and skipped. Tap the status to restore a key.</string>
   <string name="setting_provider_page_multi_key_test_needs_model">Add a chat model first to test individual keys.</string>
 </resources>

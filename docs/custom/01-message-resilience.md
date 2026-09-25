@@ -120,3 +120,19 @@ is GenerationChunk.Messages -> {
 2. 生成中反复快速点击分支切换 ◀▶ → 无闪退、内容不回退、重启后 selectIndex 保留。
 3. 生成中 `adb shell am kill <pkg>`（或开发者选项"不保留活动"+切后台）→ 重开内容保留。
 4. 构造非法 selectIndex 数据（备份注入）→ 打开会话不崩溃，正常渲染 clamp 后的消息。
+
+## 第二轮打磨（2026-09-25）：后台/退出兜底 flush
+
+**问题**：原方案在崩溃（CrashHandler）和 cleanup 时 flush，但应用被系统从后台回收、
+或用户直接划掉任务却未触发 cleanup 时，仍可能丢失最后一个节流窗口（~2.5s）的内容。
+
+**改进**：
+- `ChatService.flushAllDrafts()`：非阻塞版 flush（appScope 异步），供生命周期回调调用。
+- `RouteActivity.onStop()`：应用退到后台即 `getOrNull<ChatService>()?.flushAllDrafts()`，
+  把在途草稿立即落盘。配合既有 CrashHandler（崩溃）、cleanup（正常退出）形成三重兜底：
+  **前台被杀** ≤ 一个节流窗口；**退后台被杀** 0 丢失；**崩溃** 尽力抢救。
+- `getOrNull` 语义：ChatService 未创建说明没有生成中的会话，无需 flush，也不会误初始化依赖图。
+
+**验证补充**：
+- 生成中按 Home 退后台 → `am kill` → 重开：内容保留到退后台那一刻（0 丢失）。
+- 生成中划掉最近任务 → 重开：内容保留（onStop 已 flush）。

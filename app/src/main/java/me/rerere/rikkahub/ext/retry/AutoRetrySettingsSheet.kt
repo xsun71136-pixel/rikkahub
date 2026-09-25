@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.ext.retry
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -12,10 +14,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,6 +46,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
+import me.rerere.hugeicons.stroke.ArrowDown01
+import me.rerere.hugeicons.stroke.ArrowUp01
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Refresh01
 import me.rerere.rikkahub.R
@@ -49,6 +55,10 @@ import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.ui.components.ui.Switch
 import me.rerere.rikkahub.ui.context.LocalToaster
 import com.dokar.sonner.ToastType
+
+/** 状态码快捷开关预设（含常见 CDN/中转站错误码段），点选即加入/移出重试集合。 */
+private val PRESET_STATUS_CODES =
+    setOf(408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 524, 529)
 
 /**
  * 高级自动重试配置底部弹窗（自定义插件层，交互参考 kelivo auto_retry_page，
@@ -174,56 +184,105 @@ fun AutoRetrySettingsSheet(
 
             HorizontalDivider(Modifier.padding(top = 4.dp))
 
-            // ---- 状态码 ----
-            Text(
-                text = stringResource(R.string.auto_retry_status_codes),
-                style = MaterialTheme.typography.titleSmallEmphasized,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            ChipEditor(
-                items = config.retryStatusCodes.sorted().map { it.toString() },
-                hint = stringResource(R.string.auto_retry_status_code_hint),
-                numeric = true,
-                onItemsChange = { list ->
+            // ---- 状态码 / 重试关键词 / 停止关键词：折叠收纳，只占一行 ----
+            var codesExpanded by remember { mutableStateOf(false) }
+            var retryKwExpanded by remember { mutableStateOf(false) }
+            var stopKwExpanded by remember { mutableStateOf(false) }
+
+            CollapsibleSection(
+                title = stringResource(R.string.auto_retry_status_codes),
+                count = config.retryStatusCodes.size,
+                expanded = codesExpanded,
+                onToggle = { codesExpanded = !codesExpanded },
+                onReset = {
                     config = config.copy(
-                        retryStatusCodes = list.mapNotNull { it.toIntOrNull() }.toSet()
+                        retryStatusCodes = AutoRetryConfig.DEFAULT_RETRY_STATUS_CODES
                     )
                 },
-                onReset = { config = config.copy(retryStatusCodes = AutoRetryConfig.DEFAULT_RETRY_STATUS_CODES) },
-            )
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // 常用状态码快捷开关，点选即加入/移出
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        PRESET_STATUS_CODES.forEach { code ->
+                            FilterChip(
+                                selected = code in config.retryStatusCodes,
+                                onClick = {
+                                    config = config.copy(
+                                        retryStatusCodes = if (code in config.retryStatusCodes) {
+                                            config.retryStatusCodes - code
+                                        } else {
+                                            config.retryStatusCodes + code
+                                        }
+                                    )
+                                },
+                                label = { Text("$code") },
+                            )
+                        }
+                    }
+                    // 预设之外的自定义状态码
+                    val customCodes = config.retryStatusCodes
+                        .filter { it !in PRESET_STATUS_CODES }
+                        .sorted()
+                        .map { it.toString() }
+                    ChipEditor(
+                        items = customCodes,
+                        hint = stringResource(R.string.auto_retry_status_code_hint),
+                        numeric = true,
+                        onItemsChange = { list ->
+                            config = config.copy(
+                                retryStatusCodes = (
+                                        config.retryStatusCodes.filter { it in PRESET_STATUS_CODES } +
+                                                list.mapNotNull { it.toIntOrNull() }
+                                        ).toSet()
+                            )
+                        },
+                    )
+                }
+            }
 
-            // ---- 重试关键词 ----
-            Text(
-                text = stringResource(R.string.auto_retry_keywords),
-                style = MaterialTheme.typography.titleSmallEmphasized,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            ChipEditor(
-                items = config.retryKeywords,
-                hint = stringResource(R.string.auto_retry_keyword_hint),
-                numeric = false,
-                onItemsChange = { config = config.copy(retryKeywords = it) },
-                onReset = { config = config.copy(retryKeywords = AutoRetryConfig.DEFAULT_RETRY_KEYWORDS) },
-            )
+            CollapsibleSection(
+                title = stringResource(R.string.auto_retry_keywords),
+                count = config.retryKeywords.size,
+                expanded = retryKwExpanded,
+                onToggle = { retryKwExpanded = !retryKwExpanded },
+                onReset = {
+                    config = config.copy(retryKeywords = AutoRetryConfig.DEFAULT_RETRY_KEYWORDS)
+                },
+            ) {
+                ChipEditor(
+                    items = config.retryKeywords,
+                    hint = stringResource(R.string.auto_retry_keyword_hint),
+                    numeric = false,
+                    onItemsChange = { config = config.copy(retryKeywords = it) },
+                )
+            }
 
-            // ---- 停止关键词 ----
-            Text(
-                text = stringResource(R.string.auto_retry_stop_keywords),
-                style = MaterialTheme.typography.titleSmallEmphasized,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                text = stringResource(R.string.auto_retry_stop_keywords_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            ChipEditor(
-                items = config.stopKeywords,
-                hint = stringResource(R.string.auto_retry_keyword_hint),
-                numeric = false,
-                onItemsChange = { config = config.copy(stopKeywords = it) },
-                onReset = { config = config.copy(stopKeywords = AutoRetryConfig.DEFAULT_STOP_KEYWORDS) },
-            )
+            CollapsibleSection(
+                title = stringResource(R.string.auto_retry_stop_keywords),
+                count = config.stopKeywords.size,
+                expanded = stopKwExpanded,
+                onToggle = { stopKwExpanded = !stopKwExpanded },
+                onReset = {
+                    config = config.copy(stopKeywords = AutoRetryConfig.DEFAULT_STOP_KEYWORDS)
+                },
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = stringResource(R.string.auto_retry_stop_keywords_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    ChipEditor(
+                        items = config.stopKeywords,
+                        hint = stringResource(R.string.auto_retry_keyword_hint),
+                        numeric = false,
+                        onItemsChange = { config = config.copy(stopKeywords = it) },
+                    )
+                }
+            }
 
             Spacer(Modifier.height(4.dp))
 
@@ -301,6 +360,66 @@ private fun SliderRow(
     }
 }
 
+/** 折叠区块：收起时只占一行（标题 + 条目数 + 重置 + 箭头）。 */
+@Composable
+private fun CollapsibleSection(
+    title: String,
+    count: Int,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onReset: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onToggle() }
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmallEmphasized,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = stringResource(R.string.auto_retry_items_count, count),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            IconButton(onClick = onReset, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    HugeIcons.Refresh01,
+                    stringResource(R.string.auto_retry_reset_defaults),
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+            Icon(
+                if (expanded) HugeIcons.ArrowUp01 else HugeIcons.ArrowDown01,
+                contentDescription = stringResource(
+                    if (expanded) R.string.auto_retry_collapse else R.string.auto_retry_expand
+                ),
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        AnimatedVisibility(visible = expanded) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                content()
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ChipEditor(
@@ -308,7 +427,6 @@ private fun ChipEditor(
     hint: String,
     numeric: Boolean,
     onItemsChange: (List<String>) -> Unit,
-    onReset: () -> Unit,
 ) {
     var input by remember { mutableStateOf("") }
 
@@ -324,19 +442,21 @@ private fun ChipEditor(
         input = ""
     }
 
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items.forEach { item ->
-            InputChip(
-                selected = false,
-                onClick = { onItemsChange(items - item) },
-                label = { Text(item) },
-                trailingIcon = {
-                    Icon(HugeIcons.Cancel01, null, Modifier.height(16.dp))
-                },
-            )
+    if (items.isNotEmpty()) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items.forEach { item ->
+                InputChip(
+                    selected = false,
+                    onClick = { onItemsChange(items - item) },
+                    label = { Text(item) },
+                    trailingIcon = {
+                        Icon(HugeIcons.Cancel01, null, Modifier.height(16.dp))
+                    },
+                )
+            }
         }
     }
 
@@ -362,9 +482,6 @@ private fun ChipEditor(
         )
         IconButton(onClick = { commitInput() }) {
             Icon(HugeIcons.Add01, stringResource(R.string.auto_retry_add))
-        }
-        IconButton(onClick = onReset) {
-            Icon(HugeIcons.Refresh01, stringResource(R.string.auto_retry_reset_defaults))
         }
     }
 }

@@ -116,3 +116,51 @@ object KeyRotationPolicy {
 5. 单 Key 测试：正确 Key 显示成功，错误 Key 显示错误信息。
 6. 粘贴导入：含重复/空行的文本 → 去重导入并 Toast 数量。
 7. 重启应用：配置保留；provider 类型转换（OpenAI→Claude）后 Key 列表保留。
+
+## 第二轮打磨（2026-09-25）：Key 健康自动停用 + 故障切换 + UI 精修
+
+### 痛点
+原实现只有轮换策略，没有健康度：无额度/无效的 Key 会被反复选中、反复失败，
+甚至因命中停止关键词导致整条消息直接失败——"一个坏 Key 拖垮整个进度"。
+
+### Key 健康注册表（`ai/util/KeyHealth.kt`）
+`KeyHealthRegistry` 按 `(providerId, keyValue)` 记录健康态，持久化到
+`filesDir/ai_key_health.json`（与上游 LRU 缓存同模式，重启仍生效）：
+
+| 状态 | 触发 | 时长 | 恢复 |
+|------|------|------|------|
+| `INVALID` | 401/403、invalid api key/unauthorized/forbidden… | 24h | 到期自愈 / 手动恢复 / 成功请求 |
+| `QUOTA` | 402、quota/insufficient/balance/余额/额度/欠费… | 24h | 同上 |
+| `COOLDOWN` | 429（非额度文案） | 1min→2→4…指数，封顶 30min | 到期自动 / 成功请求 |
+
+- **归类优先级**：额度文案 > 无效文案 > 429，确保"429 + insufficient quota"按 QUOTA 停用而非短暂冷却。
+- **不惩罚**：5xx/超时/断网等与 Key 无关的错误（NEUTRAL）不标记，避免误伤好 Key。
+
+### 选 Key 与归因（`KeyRotationPolicy` 扩展）
+- `pickByStrategy`：先 `filterReady` 剔除停用/冷却 Key；全冷却时选最快恢复的兜底；
+  **全停用时抛 `AllKeysSuspendedException`**（GenerationLoop 转可读错误，不再空转）。
+- 每次选择记录"在途 Key"（5min TTL）；请求结束由 GenerationLoop 调
+  `reportSuccess`（清除标记）/ `reportFailure`（归类→停用或冷却）完成归因。
+
+### 故障切换（`GenerationLoop.awaitNetworkRetryOrThrow`）
+`canSwitchKey = 多Key && isKeyLevelError && hasReadyAlternative`：
+- 为真时**无视停止关键词与自动重试总开关**，300ms 后切下一个 Key 重试，
+  预算 `max(maxRetries, 8)`；状态栏提示"Key 不可用，正在切换下一个 Key"。
+- 全部 Key 停用 → `AllKeysSuspendedException` → "所有 API Key 均已停用，请在 Key 管理器恢复"。
+- 成功即 `reportSuccess` 让 Key 恢复健康，实现"好了就自动重新启用"。
+
+### UI 精修（`ProviderKeyManagerSheet`）
+- **单行卡片**：别名+健康徽标 / 掩码 / 开关 / 测试 / 编辑 / 删除 全部一行（38dp 紧凑按钮），
+  解决"两行很丑"。
+- 健康徽标：`已停用·无效`(红) / `已停用·额度`(红) / `冷却中·Xm Ys`(三级色，每秒倒计时)；
+  **点击徽标即恢复该 Key**。有停用时顶部出现"全部恢复"按钮 + 说明文案。
+- 单 Key 测试联动健康：测试前清标记，成功 `reportSuccess`、失败 `reportFailure`，
+  测试结果直接反映为徽标。`ProviderMultiKeySection` 入口计数改为"可用/总数"（扣除停用）。
+
+### 验证补充
+1. 配 1 个无效 Key + 1 个有效 Key，发起请求 → 状态栏"切换下一个 Key"，最终成功；无效 Key 变红"已停用·无效"，后续请求不再选中。
+2. 全部 Key 无效 → 弹"所有 API Key 均已停用"，不空转重试。
+3. 有效但限流(429) Key → 橙色"冷却中·倒计时"，到期自动恢复参与轮换。
+4. 重启应用 → 停用/冷却状态保留（读 ai_key_health.json）。
+5. 点红色徽标 / "全部恢复" → 立即恢复，Toast 提示。
+6. 单 Key 用户：注册表无记录，行为零变化。

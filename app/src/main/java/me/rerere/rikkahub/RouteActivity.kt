@@ -209,6 +209,18 @@ class RouteActivity : ComponentActivity() {
         handleIntent(intent)
     }
 
+    // [自定义修改] 应用退到后台时立即落盘流式草稿，后台进程被系统回收也不丢
+    // 已生成内容（docs/custom/01-message-resilience.md）。getOrNull：ChatService
+    // 尚未创建说明没有生成中的会话，无需 flush。
+    override fun onStop() {
+        super.onStop()
+        runCatching {
+            org.koin.java.KoinJavaComponent.getKoin()
+                .getOrNull<me.rerere.rikkahub.service.ChatService>()
+                ?.flushAllDrafts()
+        }
+    }
+
     private fun handleIntent(intent: Intent) {
         val backStack = navStack ?: run {
             // Compose 尚未创建导航栈，待就绪后处理。

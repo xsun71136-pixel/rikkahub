@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.ext.keys
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,6 +31,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +46,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dokar.sonner.ToastType
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.ai.provider.ModelType
 import me.rerere.ai.provider.ProviderApiKey
@@ -59,20 +63,22 @@ import me.rerere.ai.provider.splitProviderApiKeys
 import me.rerere.ai.provider.syncEnabledApiKeysToLegacyField
 import me.rerere.ai.provider.withSingleApiKeyForRequest
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.util.KeyHealthRecord
+import me.rerere.ai.util.KeyHealthState
+import me.rerere.ai.util.KeyRotationPolicy
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
-import me.rerere.hugeicons.stroke.CheckmarkCircle02
 import me.rerere.hugeicons.stroke.Clipboard
 import me.rerere.hugeicons.stroke.Connect
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.Edit01
+import me.rerere.hugeicons.stroke.Refresh01
 import me.rerere.hugeicons.stroke.View
 import me.rerere.hugeicons.stroke.ViewOff
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.components.ui.RikkaConfirmDialog
 import me.rerere.rikkahub.ui.components.ui.Switch
 import me.rerere.rikkahub.ui.context.LocalToaster
-import me.rerere.rikkahub.utils.UiState
 import me.rerere.rikkahub.utils.readClipboardText
 import org.koin.compose.koinInject
 
@@ -95,6 +101,25 @@ fun ProviderKeyManagerSheet(
     val activeCount = keys.count { it.enabled }
     val testModel = remember(provider.models) {
         provider.models.firstOrNull { it.type == ModelType.CHAT }
+    }
+
+    // [自定义修改] Key 健康状态：停用（无效/无额度）/冷却 徽标与恢复入口
+    val health by KeyRotationPolicy.healthFlow.collectAsState()
+    val providerId = provider.id.toString()
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+
+    fun recordFor(key: ProviderApiKey): KeyHealthRecord? {
+        val record = health[providerId]?.get(key.value) ?: return null
+        return if (record.until > now) record else null
+    }
+
+    val hasHealthMarks = keys.any { recordFor(it) != null }
+    LaunchedEffect(hasHealthMarks) {
+        // 有冷却倒计时时每秒刷新一次剩余时间
+        while (hasHealthMarks) {
+            delay(1000)
+            now = System.currentTimeMillis()
+        }
     }
 
     var editingKey by remember { mutableStateOf<ProviderApiKey?>(null) }
@@ -126,18 +151,50 @@ fun ProviderKeyManagerSheet(
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.setting_provider_page_multi_key_manager),
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                    Text(
+                        text = stringResource(
+                            R.string.setting_provider_page_multi_key_summary,
+                            activeCount,
+                            keys.size,
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (hasHealthMarks) {
+                    TextButton(
+                        onClick = {
+                            KeyRotationPolicy.clearProviderHealth(providerId)
+                            toaster.show(
+                                message = context.getString(
+                                    R.string.setting_provider_page_multi_key_health_restored_all
+                                ),
+                                type = ToastType.Success,
+                            )
+                        },
+                    ) {
+                        Icon(HugeIcons.Refresh01, null, Modifier.size(16.dp))
+                        Text(
+                            text = stringResource(R.string.setting_provider_page_multi_key_restore_all),
+                            modifier = Modifier.padding(start = 6.dp),
+                        )
+                    }
+                }
+            }
+
+            if (hasHealthMarks) {
                 Text(
-                    text = stringResource(R.string.setting_provider_page_multi_key_manager),
-                    style = MaterialTheme.typography.titleLarge,
-                )
-                Text(
-                    text = stringResource(
-                        R.string.setting_provider_page_multi_key_summary,
-                        activeCount,
-                        keys.size,
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = stringResource(R.string.setting_provider_page_multi_key_health_caption),
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -226,6 +283,17 @@ fun ProviderKeyManagerSheet(
                             apiKey = key,
                             provider = provider,
                             testModel = testModel,
+                            health = recordFor(key),
+                            now = now,
+                            onRestoreHealth = {
+                                KeyRotationPolicy.clearKeyHealth(providerId, key.value)
+                                toaster.show(
+                                    message = context.getString(
+                                        R.string.setting_provider_page_multi_key_health_restored
+                                    ),
+                                    type = ToastType.Success,
+                                )
+                            },
                             onToggle = { enabled ->
                                 updateKeys(keys.map {
                                     if (it.id == key.id) it.copy(enabled = enabled) else it
@@ -316,13 +384,55 @@ private fun ProviderApiKeyCard(
     apiKey: ProviderApiKey,
     provider: ProviderSetting,
     testModel: me.rerere.ai.provider.Model?,
+    health: KeyHealthRecord?,
+    now: Long,
+    onRestoreHealth: () -> Unit,
     onToggle: (Boolean) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val toaster = LocalToaster.current
     val providerManager = koinInject<ProviderManager>()
     val scope = rememberCoroutineScope()
-    var testState by remember(apiKey.id) { mutableStateOf<UiState<String>>(UiState.Idle) }
+    var testing by remember(apiKey.id) { mutableStateOf(false) }
+
+    fun runTest() {
+        val model = testModel ?: return
+        scope.launch {
+            testing = true
+            // 显式测试 = 先恢复该 Key 再实测；结果回写健康状态（失败会自动重新停用/冷却）
+            KeyRotationPolicy.clearKeyHealth(provider.id.toString(), apiKey.value)
+            val result = runCatching {
+                val single = provider.withSingleApiKeyForRequest(apiKey.value)
+                val impl = providerManager.getProviderByType(single)
+                impl.generateText(
+                    providerSetting = single,
+                    messages = listOf(UIMessage.user("hello")),
+                    params = TextGenerationParams(
+                        model = model,
+                        customHeaders = model.customHeaders,
+                        customBody = model.customBodies,
+                    ),
+                )
+            }
+            result.onSuccess {
+                KeyRotationPolicy.reportSuccess(provider.id.toString())
+                toaster.show(
+                    message = context.getString(R.string.setting_provider_page_multi_key_test_success),
+                    type = ToastType.Success,
+                )
+            }.onFailure { error ->
+                KeyRotationPolicy.reportFailure(provider.id.toString(), error)
+                toaster.show(
+                    message = error.message?.lineSequence()?.firstOrNull()?.take(80)
+                        ?: context.getString(R.string.setting_provider_page_multi_key_test_failed),
+                    type = ToastType.Error,
+                )
+            }
+            testing = false
+        }
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -330,16 +440,19 @@ private fun ProviderApiKeyCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         ),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        // 单行布局：别名+健康徽标 / 掩码 / 开关 / 测试 / 编辑 / 删除
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 14.dp, end = 2.dp, top = 2.dp, bottom = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 4.dp),
             ) {
-                Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = apiKey.alias.ifBlank {
                             stringResource(
@@ -350,86 +463,104 @@ private fun ProviderApiKeyCard(
                         style = MaterialTheme.typography.titleSmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
-                    Text(
-                        text = maskProviderApiKey(apiKey.value),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
-                }
-                Switch(checked = apiKey.enabled, onCheckedChange = onToggle)
-            }
+                    if (health != null) {
+                        val label = when (health.state) {
+                            KeyHealthState.INVALID -> stringResource(
+                                R.string.setting_provider_page_multi_key_health_invalid
+                            )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End,
+                            KeyHealthState.QUOTA -> stringResource(
+                                R.string.setting_provider_page_multi_key_health_quota
+                            )
+
+                            KeyHealthState.COOLDOWN -> stringResource(
+                                R.string.setting_provider_page_multi_key_health_cooldown,
+                                formatRemaining(health.until - now),
+                            )
+                        }
+                        Text(
+                            text = " · $label",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (health.state == KeyHealthState.COOLDOWN) {
+                                MaterialTheme.colorScheme.tertiary
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            },
+                            maxLines = 1,
+                            // 点击徽标即恢复该 Key
+                            modifier = Modifier.clickable { onRestoreHealth() },
+                        )
+                    }
+                }
+                Text(
+                    text = maskProviderApiKey(apiKey.value),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+            Switch(checked = apiKey.enabled, onCheckedChange = onToggle)
+            CompactIconButton(
+                onClick = { runTest() },
+                enabled = testModel != null && !testing,
             ) {
-                when (testState) {
-                    is UiState.Loading -> CircularProgressIndicator(
+                if (testing) {
+                    CircularProgressIndicator(
                         modifier = Modifier.size(16.dp),
                         strokeWidth = 2.dp,
                     )
-
-                    is UiState.Success -> Icon(
-                        HugeIcons.CheckmarkCircle02,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.primary,
+                } else {
+                    Icon(
+                        HugeIcons.Connect,
+                        stringResource(R.string.setting_provider_page_multi_key_test),
+                        modifier = Modifier.size(18.dp),
                     )
-
-                    is UiState.Error -> Text(
-                        text = (testState as UiState.Error).error.message
-                            ?.lineSequence()?.firstOrNull()
-                            ?.take(60)
-                            ?: stringResource(R.string.setting_provider_page_multi_key_test_failed),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-
-                    else -> Unit
-                }
-
-                if (testModel != null) {
-                    IconButton(
-                        onClick = {
-                            scope.launch {
-                                testState = UiState.Loading
-                                testState = runCatching {
-                                    val single = provider.withSingleApiKeyForRequest(apiKey.value)
-                                    val impl = providerManager.getProviderByType(single)
-                                    impl.generateText(
-                                        providerSetting = single,
-                                        messages = listOf(UIMessage.user("hello")),
-                                        params = TextGenerationParams(
-                                            model = testModel,
-                                            customHeaders = testModel.customHeaders,
-                                            customBody = testModel.customBodies,
-                                        ),
-                                    )
-                                }.fold(
-                                    onSuccess = { UiState.Success("OK") },
-                                    onFailure = { UiState.Error(it) },
-                                )
-                            }
-                        },
-                    ) {
-                        Icon(HugeIcons.Connect, stringResource(R.string.setting_provider_page_multi_key_test))
-                    }
-                }
-                IconButton(onClick = onEdit) {
-                    Icon(HugeIcons.Edit01, stringResource(R.string.common_edit))
-                }
-                IconButton(onClick = onDelete) {
-                    Icon(HugeIcons.Delete01, stringResource(R.string.common_delete))
                 }
             }
+            CompactIconButton(onClick = onEdit) {
+                Icon(
+                    HugeIcons.Edit01,
+                    stringResource(R.string.common_edit),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            CompactIconButton(onClick = onDelete) {
+                Icon(
+                    HugeIcons.Delete01,
+                    stringResource(R.string.common_delete),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
+    }
+}
+
+/** 38dp 紧凑图标按钮，保证一行能放下 开关+测试+编辑+删除。 */
+@Composable
+private fun CompactIconButton(
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    content: @Composable () -> Unit,
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.size(38.dp),
+    ) {
+        content()
+    }
+}
+
+/** 冷却剩余时间的紧凑格式：45s / 3m20s / 1h05m。 */
+private fun formatRemaining(ms: Long): String {
+    val seconds = (ms / 1000).coerceAtLeast(0)
+    return when {
+        seconds >= 3600 -> "${seconds / 3600}h${(seconds % 3600) / 60}m"
+        seconds >= 60 -> "${seconds / 60}m${seconds % 60}s"
+        else -> "${seconds}s"
     }
 }
 

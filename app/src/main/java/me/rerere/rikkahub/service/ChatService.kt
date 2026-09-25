@@ -173,6 +173,11 @@ class ChatService(
     /** 崩溃兜底：由 CrashHandler 在进程崩溃前同步调用，尽最大努力保住已生成内容。 */
     fun flushAllDraftsBlocking(timeoutMs: Long = 1_500L) = draftSaver.flushAllBlocking(timeoutMs)
 
+    /** [自定义修改] 应用退到后台时立即落盘在途草稿，消除"后台被杀丢一个节流窗口"的残留风险。 */
+    fun flushAllDrafts() {
+        appScope.launch { runCatching { draftSaver.flushAll() } }
+    }
+
     private val sessionManager = ConversationSessionManager(
         scope = appScope,
         createInitialConversation = { id ->

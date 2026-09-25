@@ -5,6 +5,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import me.rerere.ai.provider.ProviderKeyStrategy
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.activeApiKeyValuesForRequest
 import me.rerere.ai.provider.getProviderKeyStrategy
 import me.rerere.ai.provider.isMultiKeyEnabled
 import java.io.File
@@ -16,10 +17,29 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * app 层根据 Settings 同步每个启用了多 Key 的 provider 的策略；
  * 未注册的 provider 返回 null → 轮盘保持上游原行为（LRU/随机），零回归。
+ *
+ * 同时承担 Key 健康管理门面：
+ * - 选 Key 时跳过已停用（无效/无额度）与冷却中的 Key（[KeyHealthRegistry]）；
+ * - 记录每次选择为"在途 Key"，请求结束后由上层 [reportSuccess]/[reportFailure] 归因；
+ * - 全部 Key 停用时抛 [AllKeysSuspendedException]，由 GenerationLoop 转为可读错误。
  */
 object KeyRotationPolicy {
     private val strategies = ConcurrentHashMap<String, ProviderKeyStrategy>()
     private val roundRobinCounters = ConcurrentHashMap<String, AtomicInteger>()
+
+    /** 在途 Key 归因窗口：超过该时长的失败不再归因（避免陈旧记录误伤）。 */
+    private const val IN_FLIGHT_TTL_MS = 5 * 60_000L
+
+    private class InFlight(val key: String, val at: Long)
+
+    private val inFlight = ConcurrentHashMap<String, InFlight>()
+
+    /** 启动时加载持久化的停用/冷却记录（RikkaHubApp 调用）。 */
+    fun init(context: Context) = KeyHealthRegistry.init(context)
+
+    /** UI 观察健康状态变化（Key 管理器徽标、可用计数）。 */
+    val healthFlow: kotlinx.coroutines.flow.StateFlow<Map<String, Map<String, KeyHealthRecord>>> =
+        KeyHealthRegistry.health
 
     fun sync(providers: List<ProviderSetting>) {
         val active = providers
@@ -40,13 +60,71 @@ object KeyRotationPolicy {
     /** 按注册策略选 Key；返回 null 表示该 provider 未启用多 Key 策略，走原逻辑。 */
     internal fun pickByStrategy(keys: List<String>, providerId: String): String? {
         if (keys.isEmpty()) return null
-        return when (strategyOf(providerId)) {
-            ProviderKeyStrategy.RANDOM -> keys.random()
-            ProviderKeyStrategy.ROUND_ROBIN ->
-                keys[Math.floorMod(nextRoundRobinIndex(providerId), keys.size)]
-            null -> null
+        val strategy = strategyOf(providerId) ?: return null
+        // [自定义修改] Key 健康过滤：停用（无效/无额度）的 Key 不再参与选择；
+        // 全部冷却时选最快恢复的一个兜底；全部停用时抛出明确异常。
+        val ready = KeyHealthRegistry.filterReady(providerId, keys)
+        val pool = ready.ifEmpty {
+            KeyHealthRegistry.coolingSorted(providerId, keys).take(1).ifEmpty {
+                throw AllKeysSuspendedException(providerId)
+            }
         }
+        val picked = when (strategy) {
+            ProviderKeyStrategy.RANDOM -> pool.random()
+            ProviderKeyStrategy.ROUND_ROBIN ->
+                pool[Math.floorMod(nextRoundRobinIndex(providerId), pool.size)]
+        }
+        inFlight[providerId] = InFlight(picked, System.currentTimeMillis())
+        return picked
     }
+
+    /** 请求成功：清除在途 Key 的健康标记（实测可用，即使之前被停用也恢复）。 */
+    fun reportSuccess(providerId: String) {
+        val key = takeInFlight(providerId) ?: return
+        KeyHealthRegistry.clearKey(providerId, key)
+    }
+
+    /** 请求失败：Key 级故障（无效/额度/限流）时停用或冷却在途 Key；其余错误不惩罚。 */
+    fun reportFailure(providerId: String, error: Throwable) {
+        val key = takeInFlight(providerId) ?: return
+        val verdict = KeyHealthRegistry.classify(error)
+        if (verdict == KeyVerdict.NEUTRAL) return
+        KeyHealthRegistry.mark(
+            providerId = providerId,
+            keyValue = key,
+            verdict = verdict,
+            reason = error.message?.lineSequence()?.firstOrNull()?.take(80) ?: "",
+        )
+    }
+
+    private fun takeInFlight(providerId: String): String? {
+        val flight = inFlight.remove(providerId) ?: return null
+        if (System.currentTimeMillis() - flight.at > IN_FLIGHT_TTL_MS) return null
+        return flight.key
+    }
+
+    /** 错误是否属于 Key 级故障（无效/额度/限流）——上层据此决定是否切换 Key 重试。 */
+    fun isKeyLevelError(error: Throwable): Boolean {
+        val verdict = KeyHealthRegistry.classify(error)
+        return verdict == KeyVerdict.INVALID ||
+                verdict == KeyVerdict.QUOTA ||
+                verdict == KeyVerdict.COOLDOWN
+    }
+
+    /** 该 provider（启用多 Key 时）是否还有立即可用的备选 Key。 */
+    fun hasReadyAlternative(provider: ProviderSetting): Boolean {
+        if (!provider.isMultiKeyEnabled()) return false
+        val keys = provider.activeApiKeyValuesForRequest()
+        if (keys.size < 2) return false
+        return KeyHealthRegistry.filterReady(provider.id.toString(), keys).isNotEmpty()
+    }
+
+    /** UI：手动恢复单个 Key。 */
+    fun clearKeyHealth(providerId: String, keyValue: String) =
+        KeyHealthRegistry.clearKey(providerId, keyValue)
+
+    /** UI：恢复该 provider 的全部 Key。 */
+    fun clearProviderHealth(providerId: String) = KeyHealthRegistry.clearProvider(providerId)
 }
 
 interface KeyRoulette {

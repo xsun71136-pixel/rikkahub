@@ -78,6 +78,9 @@ class RikkaHubApp : Application() {
         // set cursor window size to 32MB
         DatabaseUtil.setCursorWindowSize(32 * 1024 * 1024)
 
+        // [自定义修改] Key 健康注册表：加载持久化的停用/冷却记录（docs/custom/03-multi-key.md）
+        me.rerere.ai.util.KeyRotationPolicy.init(this)
+
         // install crash handler
         // [自定义修改] 崩溃时应急保存所有生成中会话的草稿（docs/custom/01-message-resilience.md）
         // 用 getOrNull：ChatService 尚未创建时不存在草稿，避免在崩溃路径上初始化依赖图

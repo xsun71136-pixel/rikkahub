@@ -41,18 +41,21 @@ data class AutoRetryConfig(
         const val MIN_MULTIPLIER = 1.0
         const val MAX_MULTIPLIER = 5.0
 
-        val DEFAULT_RETRY_STATUS_CODES = setOf(408, 425, 429, 500, 502, 503, 504, 529)
+        val DEFAULT_RETRY_STATUS_CODES =
+            setOf(408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 524, 529)
 
         val DEFAULT_RETRY_KEYWORDS = listOf(
-            "并发", "稍后", "重试", "访问量过大", "繁忙", "限流",
+            "并发", "稍后", "重试", "访问量过大", "繁忙", "限流", "频率",
             "rate limit", "too many requests", "overloaded", "try again",
-            "timeout", "超时",
+            "timeout", "超时", "temporarily", "capacity",
         )
 
         val DEFAULT_STOP_KEYWORDS = listOf(
             "余额", "不足", "额度", "欠费", "未实名",
             "balance", "insufficient", "quota", "invalid api key",
             "unauthorized", "permission",
+            "context length", "maximum context", "content filter",
+            "敏感词", "违规", "风控",
         )
     }
 

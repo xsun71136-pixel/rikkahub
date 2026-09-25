@@ -109,3 +109,21 @@ data class AutoRetryConfig(
 3. 长按设置行 → Sheet 调整 maxRetries=1 → 生成失败只重试 1 次。
 4. stopKeywords 加 "test-stop"，构造含该词的错误 → 不重试。
 5. 重启应用配置保留（DataStore 序列化兼容）。
+
+## 第二轮打磨（2026-09-25）：紧凑 UI + 与多 Key 联动
+
+**UI 收纳**（解决"占空间一大批"）：
+- 状态码/重试关键词/停止关键词三段改为 `CollapsibleSection` 折叠卡，收起时各占一行
+  （标题 + 条目数 + 重置 + 箭头），默认全收起，弹窗首屏即可见全部主控项。
+- 状态码段内置 `PRESET_STATUS_CODES`（408/425/429/500/502/503/504/520/521/522/524/529）
+  快捷 `FilterChip` 点选开关，预设之外的自定义码才走 ChipEditor 输入，减少手动敲数字。
+
+**默认值优化**（开箱即用）：
+- 重试状态码补全 Cloudflare/中转站常见错误段（520/521/522/524）。
+- 重试关键词补 `频率/temporarily/capacity`；停止关键词补 `context length/maximum context/
+  content filter/敏感词/违规/风控`（上下文超限、内容审查类重试无意义，直接停）。
+
+**与多 Key 联动**（关键）：重试判定不再"一刀切放弃"。见 03-multi-key.md 的
+`awaitNetworkRetryOrThrow`：当错误是 Key 级故障（无效/额度/限流）且还有可用备选 Key 时，
+**无视停止关键词与自动重试总开关**，自动切换下一个 Key 继续，而不是让整条消息失败。
+停止关键词的语义回归本意——"这个 Key 别再用"，而非"整条消息放弃"。

@@ -15,6 +15,7 @@
 | `app/src/main/java/me/rerere/rikkahub/ext/keys/ProviderMultiKeySection.kt` | 3 |
 | `app/src/main/java/me/rerere/rikkahub/ext/keys/ProviderKeyManagerSheet.kt` | 3 |
 | `ai/src/main/java/me/rerere/ai/provider/ProviderApiKeys.kt` | 3 |
+| `ai/src/main/java/me/rerere/ai/util/KeyHealth.kt` | 3（Key 健康注册表：停用/冷却/归因/持久化） |
 | `docs/custom/*` | 文档 |
 
 ## 官方文件修改点
@@ -39,6 +40,8 @@
 | `data/repository/ConversationRepository.kt` | `saveMessageNodes` 之前 | 新增 3 个 additive 方法：`replaceMessageNodesDraft` / `upsertMessageNodeDraft` / `deleteMessageNodeDraft` | 轻量草稿写入（跳过 FTS） |
 | `utils/CrashHandler.kt` | `install()` | 增加可选参数 `onCrash: (() -> Unit)? = null`，在 markCrashed 前调用 | 崩溃回调挂点 |
 | `RikkaHubApp.kt` | `onCreate` 的 `CrashHandler.install(this)` | 传入回调：`getKoin().getOrNull<ChatService>()?.flushAllDraftsBlocking(1500)`；新增 import `org.koin.java.KoinJavaComponent.getKoin` | 崩溃时应急保存 |
+| `service/ChatService.kt` | `flushAllDraftsBlocking` 之后 | 新增 `flushAllDrafts()`（appScope 异步 flush） | 后台 flush 入口（第二轮打磨） |
+| `RouteActivity.kt` | `onNewIntent` 之后 | 新增 `onStop()`：`KoinJavaComponent.getKoin().getOrNull<ChatService>()?.flushAllDrafts()` | 退后台立即落盘草稿，后台被杀不丢（第二轮打磨） |
 
 ### 功能 2：可自定义自动重试（02-auto-retry.md）
 
@@ -61,12 +64,17 @@
 | `ai/.../provider/ProviderSetting.kt` | `OpenAI` / `Google` / `Claude` 三个 data class 构造参数**末尾** | 各追加 `multiKeyEnabled=false`、`apiKeys=emptyList()`、`keyStrategy=RANDOM` | 结构化多 Key 存储（序列化兼容） |
 | `ai/.../util/KeyRoulette.kt` | 文件头 | 新增 `KeyRotationPolicy` 注册表对象（sync/strategyOf/pickByStrategy/轮询计数器） | 策略支持 |
 | `ai/.../util/KeyRoulette.kt` | `DefaultKeyRoulette.next` / `LruKeyRoulette.next` 开头 | 先查 `KeyRotationPolicy.pickByStrategy`，命中即返回；未注册走上游原逻辑 | 零回归接入 |
+| `ai/.../util/KeyRoulette.kt` | `KeyRotationPolicy`（第二轮打磨） | 扩展为 Key 健康门面：`init/healthFlow/reportSuccess/reportFailure/isKeyLevelError/hasReadyAlternative/clearKeyHealth/clearProviderHealth`；`pickByStrategy` 过滤停用/冷却 Key、记录在途 Key、全停用时抛 `AllKeysSuspendedException` | 失效 Key 自动停用不再被调用 |
+| `data/ai/GenerationLoop.kt`（第二轮打磨） | stream 成功分支 / `executeProviderRequestWithRetry` 成功返回 | `KeyRotationPolicy.reportSuccess(provider.id)` | 成功 Key 恢复健康 |
+| `data/ai/GenerationLoop.kt`（第二轮打磨） | `awaitNetworkRetryOrThrow` | 新增 `provider` 参数；开头映射 `AllKeysSuspendedException` → 可读错误；`reportFailure` 归因；`canSwitchKey`（Key 级故障且有可用备选）时**无视停止关键词与总开关**切换 Key 重试（预算 `KEY_SWITCH_BUDGET=8`、延迟 300ms、状态栏 `chat_generation_key_switching`） | Key 失效不阻塞消息进度 |
+| `RikkaHubApp.kt`（第二轮打磨） | `onCreate` DatabaseUtil 之后 | `KeyRotationPolicy.init(this)` | 加载持久化的 Key 健康记录 |
 | `ui/pages/setting/components/ProviderConfigure.kt` | `ProviderConfigureOpenAI` / `ProviderConfigureClaude` 的 apiKey `OutlinedTextField` 之后、baseUrl 之前 | 插入 `ProviderMultiKeySection(provider, onEdit = { onEdit(it as ProviderSetting.Xxx) })` | 开关入口 |
 | 同上 | `ProviderConfigureGoogle` 的 `if (!(vertexAI && useServiceAccount))` 块内 apiKey 字段后 | 同上（Google 版） | 同上 |
 | 同上 | `convertTo()` | 读取源 provider 的多 Key 三字段并传入目标构造 | 类型转换不丢 Key |
 | 同上 | import 区 | 增加 `ext.keys.ProviderMultiKeySection`、`ai.provider.{isMultiKeyEnabled,getProviderApiKeys,getProviderKeyStrategy}` | - |
 | `RikkaHubApp.kt` | `onCreate` 尾部（incrementLaunchCount 之后） | AppScope collect `settingsFlow` → `KeyRotationPolicy.sync(settings.providers)` | 策略注册表跟随设置 |
 | `res/values/strings.xml`、`res/values-zh/strings.xml` | 文件尾部自定义块 | 新增 `common_edit`、`setting_provider_page_multi_key_*` 字符串 | - |
+| 同上（第二轮打磨） | `chat_generation_network_retrying` 附近 / 尾部自定义块 | 新增 `chat_generation_key_switching`、`error_all_keys_suspended`、`setting_provider_page_multi_key_health_*`、`_restore_all`、`_test_success`、`auto_retry_items_count/expand/collapse`；`_manager_with_count` 改为"可用"语义 | - |
 
 ### 构建：Firebase 移除（云端构建无需 google-services.json）
 

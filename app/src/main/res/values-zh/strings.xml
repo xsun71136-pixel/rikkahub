@@ -1320,6 +1320,8 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="workspace_terminal_close_confirm_message">关闭此标签页将终止其中仍在运行的任何进程。</string>
   <string name="workspace_terminal_close">关闭</string>
   <string name="chat_generation_network_retrying">%1$s，正在重试（%2$d/%3$d）…</string>
+  <string name="chat_generation_key_switching">Key 不可用（%1$s），正在切换下一个 Key（%2$d/%3$d）…</string>
+  <string name="error_all_keys_suspended">所有 API Key 均已停用（无效或无额度），请在 提供商 → Key 管理器 中恢复</string>
   <string name="chat_generation_network_unknown_host">无法解析服务器地址</string>
   <string name="chat_generation_network_timeout">连接超时</string>
   <string name="chat_generation_network_unreachable">无法连接到服务器</string>
@@ -1407,10 +1409,13 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="auto_retry_reset_all">全部恢复默认</string>
   <string name="auto_retry_save">保存</string>
   <string name="auto_retry_saved">已保存自动重试设置</string>
+  <string name="auto_retry_items_count">%1$d 项</string>
+  <string name="auto_retry_expand">展开</string>
+  <string name="auto_retry_collapse">收起</string>
   <string name="common_edit">编辑</string>
   <string name="setting_provider_page_multi_key_mode">多 Key 模式</string>
   <string name="setting_provider_page_multi_key_mode_desc">把多个 Key 分开管理，并选择哪些参与请求。</string>
-  <string name="setting_provider_page_multi_key_manager_with_count">管理 Key（已启用 %1$d/%2$d）</string>
+  <string name="setting_provider_page_multi_key_manager_with_count">管理 Key（%1$d/%2$d 可用）</string>
   <string name="setting_provider_page_multi_key_manager">Key 管理器</string>
   <string name="setting_provider_page_multi_key_summary">已启用 %1$d/%2$d 个 Key</string>
   <string name="setting_provider_page_multi_key_strategy_random">随机</string>
@@ -1431,5 +1436,13 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="setting_provider_page_multi_key_delete_desc">确定删除「%1$s」吗？此操作不可撤销。</string>
   <string name="setting_provider_page_multi_key_test">测试</string>
   <string name="setting_provider_page_multi_key_test_failed">测试失败</string>
+  <string name="setting_provider_page_multi_key_test_success">该 Key 可用</string>
+  <string name="setting_provider_page_multi_key_health_invalid">已停用 · 无效</string>
+  <string name="setting_provider_page_multi_key_health_quota">已停用 · 额度</string>
+  <string name="setting_provider_page_multi_key_health_cooldown">冷却中 · %1$s</string>
+  <string name="setting_provider_page_multi_key_restore_all">全部恢复</string>
+  <string name="setting_provider_page_multi_key_health_restored">已恢复该 Key</string>
+  <string name="setting_provider_page_multi_key_health_restored_all">已恢复全部 Key</string>
+  <string name="setting_provider_page_multi_key_health_caption">无效或无额度的 Key 会被自动停用并跳过；点击状态标签即可恢复。</string>
   <string name="setting_provider_page_multi_key_test_needs_model">添加聊天模型后，才能测试单个 Key。</string>
 </resources>

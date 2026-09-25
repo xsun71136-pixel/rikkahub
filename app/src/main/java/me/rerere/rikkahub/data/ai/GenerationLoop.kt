@@ -30,6 +30,8 @@ import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.StreamChunkHandler
 import me.rerere.ai.ui.handleTextGenerationResult
 import me.rerere.ai.ui.limitContext
+import me.rerere.ai.util.AllKeysSuspendedException
+import me.rerere.ai.util.KeyRotationPolicy
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.transformers.InputMessageTransformer
 import me.rerere.rikkahub.data.ai.transformers.MessageTransformer
@@ -57,6 +59,9 @@ private const val TAG = "GenerationHandler"
 private const val MAX_TOOL_OUTPUT_CHARS = 32 * 1024
 private const val TOOL_OUTPUT_PREVIEW_CHARS = 4 * 1024
 // [自定义修改] 重试次数/延迟改由 AutoRetryConfig 配置驱动（docs/custom/02-auto-retry.md）
+// [自定义修改] 多 Key 联动：Key 级故障（无效/额度/限流）时的切换重试预算与延迟
+private const val KEY_SWITCH_BUDGET = 8
+private const val KEY_SWITCH_DELAY_MS = 300L
 
 private class StreamChunkHandlingException(cause: Throwable) : RuntimeException(cause)
 
@@ -441,6 +446,8 @@ class GenerationLoop(
                             }
                         }
                         messages = attemptMessages
+                        // [自定义修改] 请求成功：清除该 Key 的健康标记（docs/custom/03-multi-key.md）
+                        KeyRotationPolicy.reportSuccess(provider.id.toString())
                         break
                     } catch (error: Throwable) {
                         if (error is StreamChunkHandlingException) {
@@ -452,6 +459,7 @@ class GenerationLoop(
                             processingStatus = processingStatus,
                             enabled = settings.networkSetting.enableAutoRetry,
                             retryConfig = settings.networkSetting.autoRetry,
+                            provider = provider,
                         )
                     }
                 }
@@ -460,6 +468,7 @@ class GenerationLoop(
                     processingStatus = processingStatus,
                     enabled = settings.networkSetting.enableAutoRetry,
                     retryConfig = settings.networkSetting.autoRetry,
+                    provider = provider,
                 ) {
                     providerImpl.generateText(
                         providerSetting = provider,
@@ -479,12 +488,16 @@ class GenerationLoop(
         processingStatus: MutableStateFlow<String?>,
         enabled: Boolean,
         retryConfig: AutoRetryConfig = AutoRetryConfig(),
+        provider: ProviderSetting? = null,
         block: suspend () -> T,
     ): T {
         var retryCount = 0
         while (true) {
             try {
-                return block()
+                // [自定义修改] 成功即清除在途 Key 的健康标记（docs/custom/03-multi-key.md）
+                return block().also {
+                    provider?.let { p -> KeyRotationPolicy.reportSuccess(p.id.toString()) }
+                }
             } catch (error: Throwable) {
                 retryCount = awaitNetworkRetryOrThrow(
                     error = error,
@@ -492,6 +505,7 @@ class GenerationLoop(
                     processingStatus = processingStatus,
                     enabled = enabled,
                     retryConfig = retryConfig,
+                    provider = provider,
                 )
             }
         }
@@ -503,30 +517,52 @@ class GenerationLoop(
         processingStatus: MutableStateFlow<String?>,
         enabled: Boolean,
         retryConfig: AutoRetryConfig = AutoRetryConfig(),
+        provider: ProviderSetting? = null,
     ): Int {
         // 用户主动停止生成时，底层连接也可能以 IOException("canceled") 收尾；
         // 先检查协程状态，确保取消不会被当作网络波动重新拉起。
         currentCoroutineContext().ensureActive()
+
+        // [自定义修改] 全部 Key 均已停用（无效/无额度）→ 转为可读错误，不再重试。
+        if (error is AllKeysSuspendedException) {
+            throw IllegalStateException(context.getString(R.string.error_all_keys_suspended))
+        }
+
+        // [自定义修改] Key 级故障（无效/额度/限流）先归因到具体 Key：把失败 Key 停用或冷却，
+        // 之后 hasReadyAlternative 才能反映"还有没有别的 Key 可用"。见 docs/custom/03-multi-key.md
+        provider?.let { KeyRotationPolicy.reportFailure(it.id.toString(), error) }
+
+        // [自定义修改] 多 Key 联动：单 Key 失效/无额度时自动切换到下一个可用 Key 继续，
+        // 不受"停止关键词"（余额/额度/invalid key）与自动重试总开关的限制——
+        // 停止关键词的语义是"这个 Key 别再用了"，而不是"整条消息放弃"。
+        val canSwitchKey = provider != null &&
+                KeyRotationPolicy.isKeyLevelError(error) &&
+                KeyRotationPolicy.hasReadyAlternative(provider)
+
         // [自定义修改] 使用 RetryPolicy 综合判定（HTTP 状态码/重试关键词/停止关键词），
         // 不再只认 IOException——上游 provider 的 HTTP 失败抛普通 Exception，
         // 导致 429/5xx 从不触发重试。见 docs/custom/02-auto-retry.md
         val config = retryConfig.clamped()
-        if (!enabled || retryCount >= config.maxRetries || !RetryPolicy.shouldRetry(error, config)) {
+        val shouldRetry = canSwitchKey || (enabled && RetryPolicy.shouldRetry(error, config))
+        val budget = if (canSwitchKey) maxOf(config.maxRetries, KEY_SWITCH_BUDGET) else config.maxRetries
+        if (!shouldRetry || retryCount >= budget) {
             throw error
         }
 
         val nextRetryCount = retryCount + 1
-        val retryDelay = RetryPolicy.backoffDelay(retryCount, config)
+        val retryDelay =
+            if (canSwitchKey) KEY_SWITCH_DELAY_MS else RetryPolicy.backoffDelay(retryCount, config)
         processingStatus.value = context.getString(
-            R.string.chat_generation_network_retrying,
+            if (canSwitchKey) R.string.chat_generation_key_switching
+            else R.string.chat_generation_network_retrying,
             getRetryErrorMessage(error),
             nextRetryCount,
-            config.maxRetries,
+            budget,
         )
         Log.w(
             TAG,
-            "Provider request failed, retrying in ${retryDelay}ms " +
-                    "($nextRetryCount/${config.maxRetries})",
+            "Provider request failed (${if (canSwitchKey) "switching key" else "retrying"}) " +
+                    "in ${retryDelay}ms ($nextRetryCount/$budget)",
             error,
         )
         delay(retryDelay)

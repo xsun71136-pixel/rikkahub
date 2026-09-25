@@ -10,6 +10,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,6 +26,7 @@ import me.rerere.ai.provider.copyWithApiKeyConfig
 import me.rerere.ai.provider.getProviderApiKeys
 import me.rerere.ai.provider.isMultiKeyEnabled
 import me.rerere.ai.provider.normalizedProviderApiKeys
+import me.rerere.ai.util.KeyRotationPolicy
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Link01
 import me.rerere.rikkahub.R
@@ -44,7 +46,13 @@ fun ProviderMultiKeySection(
     onEdit: (ProviderSetting) -> Unit,
 ) {
     var showManager by remember { mutableStateOf(false) }
-    val activeCount = provider.activeApiKeyValuesForRequest().size
+    // [自定义修改] 可用计数 = 启用且未被自动停用（无效/无额度/冷却中）的 Key
+    val health by KeyRotationPolicy.healthFlow.collectAsState()
+    val now = System.currentTimeMillis()
+    val records = health[provider.id.toString()].orEmpty()
+    val activeCount = provider.activeApiKeyValuesForRequest().count { value ->
+        (records[value]?.until ?: 0L) <= now
+    }
     val totalCount = provider.getProviderApiKeys().normalizedProviderApiKeys().size
 
     Row(
