@@ -1422,8 +1422,10 @@ docs/custom/static-check-report.json
 功能实现：
 9371fd28d95073fa8c262f9fc994e75961a7a8a2
 
-最终远端 HEAD：
+源码/CI 最终提交（文档提交之前）：
 df99692a684360c4b23b4f9a17e3d665c3825e46
+
+当前远端 HEAD：以 `master` 最新提交为准；文档提交是 docs-only 提交，不改变源码构建结果。
 
 成功构建：
 Actions run 36479462858
