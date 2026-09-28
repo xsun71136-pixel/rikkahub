@@ -77,6 +77,8 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
 
       - name: Prepare build files
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
           # 解码base64编码的keystore文件
           echo "${{ secrets.KEY_BASE64 }}" | base64 -d > app/app.key
@@ -84,8 +86,33 @@ jobs:
           # 写入签名配置到local.properties
           echo "${{ secrets.SIGNING_CONFIG }}" > local.properties
 
-          # 写入Google Services配置
-          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
+          # GOOGLE_SERVICES_JSON is optional for source builds. Use it only when it is valid;
+          # an absent/malformed secret must not make the entire release build fail.
+          if printf '%s' "$GOOGLE_SERVICES_JSON" | jq -e . >/dev/null 2>&1; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          else
+            cat > app/google-services.json <<'JSON'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "rikkahub-build",
+              "storage_bucket": "rikkahub-build.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+                  "android_client_info": {
+                    "package_name": "me.rerere.rikkahub"
+                  }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          JSON
+            echo "GOOGLE_SERVICES_JSON missing or invalid; using build-only Firebase placeholder"
+          fi
 
       - name: Gradle Build
         run: |
