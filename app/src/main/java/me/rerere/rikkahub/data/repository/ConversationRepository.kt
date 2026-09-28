@@ -481,6 +481,36 @@ class ConversationRepository(
         }
     }
 
+    // [自定义修改] A whole draft diff is atomic; never recreate a deleted conversation.
+    suspend fun writeMessageNodesDraft(
+        conversationId: Uuid,
+        nodes: List<MessageNode>,
+        previous: List<MessageNode>?,
+    ) {
+        database.withTransaction {
+            val id = conversationId.toString()
+            if (conversationDAO.getConversationById(id) == null) return@withTransaction
+            val keepIds = nodes.mapTo(HashSet()) { it.id.toString() }
+            val oldIds = previous?.map { it.id.toString() }
+                ?: messageNodeDAO.getNodesOfConversation(id).map { it.id }
+            oldIds.filter { it !in keepIds }.forEach { messageNodeDAO.deleteById(it) }
+            nodes.forEachIndexed { index, node ->
+                if (previous?.getOrNull(index) !== node) {
+                    messageNodeDAO.insert(
+                        MessageNodeEntity(
+                            id = node.id.toString(),
+                            conversationId = id,
+                            nodeIndex = index,
+                            messages = JsonInstant.encodeToString(node.messages),
+                            selectIndex = if (node.messages.isEmpty()) 0
+                                else node.selectIndex.coerceIn(0, node.messages.lastIndex),
+                        )
+                    )
+                }
+            }
+        }
+    }
+
     private suspend fun saveMessageNodes(conversationId: String, nodes: List<MessageNode>) {
         val entities = nodes.mapIndexed { index, node ->
             MessageNodeEntity(

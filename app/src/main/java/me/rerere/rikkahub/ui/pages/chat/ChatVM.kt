@@ -343,6 +343,23 @@ class ChatVM(
         }
     }
 
+    // [自定义修改] 分支切换安全路径（docs/custom/2026-09-three-features-plan.md）：
+    // ChatService.selectMessageNode 基于服务层新鲜状态校验并持久化，异常转为错误卡片而不是崩溃。
+    fun selectMessageNode(nodeId: Uuid, selectIndex: Int) {
+        viewModelScope.launch {
+            runCatching {
+                chatService.selectMessageNode(_conversationId, nodeId, selectIndex)
+            }.onFailure {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                chatService.addError(
+                    error = it,
+                    conversationId = _conversationId,
+                    title = context.getString(R.string.error_title_operation)
+                )
+            }
+        }
+    }
+
     fun toggleMessageFavorite(node: MessageNode) {
         viewModelScope.launch {
             val currentlyFavorited = favoriteRepository.isNodeFavorited(_conversationId, node.id)

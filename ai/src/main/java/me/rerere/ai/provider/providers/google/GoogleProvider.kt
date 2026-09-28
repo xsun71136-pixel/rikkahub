@@ -55,6 +55,8 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
 import me.rerere.ai.util.KeyRoulette
+import me.rerere.ai.util.ProviderHttpException
+import me.rerere.ai.util.providerStreamFailure
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.configureSessionHeaders
 import me.rerere.ai.util.encodeBase64
@@ -110,7 +112,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                 .addHeader("Authorization", "Bearer $accessToken")
                 .build()
         } else {
-            val key = keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())
+            val key = keyRoulette.next(providerSetting)
             if (providerSetting.vertexAI) {
                 request.newBuilder()
                     .url(request.url.newBuilder().addQueryParameter("key", key).build())
@@ -193,7 +195,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
 
         val response = client.newCall(request).await()
         if (!response.isSuccessful) {
-            throw Exception("Failed to get response: ${response.code} ${response.body?.string()}")
+            throw ProviderHttpException(response.code, response.body?.string().orEmpty())
         }
 
         val bodyStr = response.body?.string() ?: ""
@@ -301,7 +303,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                     e.printStackTrace()
                     exception = e
                 } finally {
-                    close(exception ?: Exception("Stream failed"))
+                    close(providerStreamFailure(response, exception))
                 }
             }
 

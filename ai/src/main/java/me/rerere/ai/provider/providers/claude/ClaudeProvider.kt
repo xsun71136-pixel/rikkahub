@@ -58,6 +58,8 @@ import me.rerere.ai.ui.handleTextGenerationResult
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
 import me.rerere.ai.util.KeyRoulette
+import me.rerere.ai.util.ProviderHttpException
+import me.rerere.ai.util.providerStreamFailure
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.configureSessionHeaders
 import me.rerere.ai.util.encodeBase64
@@ -248,7 +250,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
         withContext(Dispatchers.IO) {
             val request = Request.Builder()
                 .url("${providerSetting.baseUrl}/models")
-                .addHeader("x-api-key", keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString()))
+                .addHeader("x-api-key", keyRoulette.next(providerSetting))
                 .addHeader("anthropic-version", ANTHROPIC_VERSION)
                 .get()
                 .build()
@@ -301,7 +303,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
             .url("${providerSetting.baseUrl}/messages")
             .headers(params.customHeaders.toHeaders())
             .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
-            .addHeader("x-api-key", keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString()))
+            .addHeader("x-api-key", keyRoulette.next(providerSetting))
             .addHeader("anthropic-version", ANTHROPIC_VERSION)
             .configureReferHeaders(providerSetting.baseUrl)
             .configureSessionHeaders(providerSetting.baseUrl, params.sessionId)
@@ -311,7 +313,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
 
         val response = client.newCall(request).await()
         if (!response.isSuccessful) {
-            throw Exception("Failed to get response: ${response.code} ${response.body?.string()}")
+            throw ProviderHttpException(response.code, response.body?.string().orEmpty())
         }
 
         val bodyStr = response.body?.string() ?: ""
@@ -351,7 +353,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
             .url("${providerSetting.baseUrl}/messages")
             .headers(params.customHeaders.toHeaders())
             .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
-            .addHeader("x-api-key", keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString()))
+            .addHeader("x-api-key", keyRoulette.next(providerSetting))
             .addHeader("anthropic-version", ANTHROPIC_VERSION)
             .addHeader("Content-Type", "application/json")
             .configureReferHeaders(providerSetting.baseUrl)
@@ -408,7 +410,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
                     Log.w(TAG, "onFailure: failed to parse from $bodyRaw")
                     e.printStackTrace()
                 } finally {
-                    close(exception)
+                    close(providerStreamFailure(response, exception))
                 }
             }
 
