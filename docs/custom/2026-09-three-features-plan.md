@@ -1,4 +1,378 @@
-# RikkaHub 三项功能与云端构建最终实施说明
+# RikkaHub 定制功能唯一维护文档（R2 UI 与策略升级）
+
+# R2 补充：重试与多 Key 界面重构、全局 KEY 管理策略
+
+> R2 是本文的最新规范；与下方 R1 章节冲突时，以 R2 为准。消息防丢失仍沿用 R1，未改变保存、事务、锁和取消语义。R1 的“固定 24h、固定 1～30min、固定8次/300ms”现在仅代表默认值，不再是不可更改的行为。
+
+## R2.0 最终构建与下载交付（2026-09-29）
+
+- **源码/CI 提交**：`25c904bd097ce87849eefa16795f6143053c4e66`。
+- **成功 Actions**：https://github.com/xsun71136-pixel/rikkahub/actions/runs/36491204264 。
+- **测试**：`Key policy unit tests` 成功；选中执行新增8项策略测试 + 原7项ManagedKeysTest，共15项；不是仅添加测试源码。
+- **编译**：`Gradle Build` 成功（`assembleRelease`，8分39秒）；本轮没有本地Gradle编译。
+- **发布**：`Publish nightly prerelease` 成功；https://github.com/xsun71136-pixel/rikkahub/releases/tag/nightly 。
+- **静态门禁**：385项、0失败；40个Kotlin参与、24个XML解析、双语累计160个新增字符串（R2本轮97对）。
+- **实际设备UI测试**：未执行。构建/测试通过不等于小屏、横屏、大字体和真实网络回归已经验证。
+- **文档提交**：本节记录源码提交；之后文档单独快进提交，不改变已构建源码与APK。
+
+### 工作区产物
+
+目录：`/workspace/RikkaHub-R2-25c904bd/`。
+
+| APK | 精确大小 | SHA-256 |
+|---|---:|---|
+| `app-arm64-v8a-release.apk` | 40,367,330 B | `f2d88a255cc5253eda35c923018fe86a3d1dcecbe6f28955112f7ed4f251dcc6` |
+| `app-universal-release.apk` | 50,287,432 B | `5ffa1846fea09590dddbdbad37eec29cf9a153116e62890beaadf40d35668df2` |
+| `app-x86_64-release.apk` | 41,033,824 B | `75bd84d463e9ccf30fd87dbd83b972dacefc20ac238124c6a5889c151c5190e1` |
+
+额外校验文件：`SHA256SUMS`、`artifacts.json`、`signature-verification.json`；本详细文档也复制到该目录，便于APK离线归档。
+
+### 签名与完整性校验
+
+三个APK均：
+
+1. 下载大小与GitHub asset一致；SHA-256与GitHub返回的asset digest一致。
+2. ZIP全文件CRC检查通过，不是只检查能打开zip目录。
+3. 定位APK Signing Block并识别v2 ID `0x7109871a`。
+4. 从v2签名块解析RSA证书、公钥、签名及signed-data。
+5. 按v2规范对去除签名块后的ZIP内容分1MiB块计算内容摘要，修正EOCD偏移，内容digest一致。
+6. 用OpenSSL验证RSA PKCS#1 v1.5 SHA256签名（algorithm `0x0103`），三个均 `Verified OK`；证书公钥与签名公钥相符。
+7. 证书SHA-256仍为既有项目签名：`A3:03:4D:49:87:69:D4:7D:EB:45:82:6D:22:2C:BB:FC:63:3A:74:E0:0C:AE:CA:B4:F8:AB:B3:2B:28:12:CD:33`。
+
+这次不止“发现签名块”，而是校验了v2内容摘要与签名；但未实际安装或执行Android系统`apksigner`兼容性验证。相同applicationId与签名支持同证书版本覆盖安装；若现装官方签名或其他签名，应先自行确认兼容并备份，不要自动卸载清数据。
+
+### 证据与已知警告
+
+- 仓库报告：`docs/custom/r2-build-report.json`。
+- 工作区云端日志：`/workspace/polish/build-success.log`。
+- APK校验脚本：`/workspace/polish/verify_v2.py`。
+- 本轮新增共享Slider使用的Material3旧参数重载有弃用警告（官方其他设置页也存在同类警告），不影响编译；未来升级应统一迁移到SliderState重载。
+- `static-check-report.json` 中 `compiled=false/kotlin_tests_executed=false` 表示**静态脚本不执行编译/测试**，并非本轮云端没有编译/测试。云端结果以本节、Actions与r2-build-report.json为准。
+
+## R2.1 目标、基线与执行顺序
+
+- 原远端基线：`88cc9ff3258d74c3e9c813c5c9e3f48e265d6a3d`。
+- 原源码/CI：`df99692a684360c4b23b4f9a17e3d665c3825e46`。
+- 设计先行文档：`docs/custom/2026-09-ui-policy-design.md`。该文件保留本轮动工前设计，最终行为以本文为准。
+- 顺序：通读 UI 与健康/重试调用链 → 备份 → 写设计 → 统一 UI 基础组件 → 健康策略模型及真实接线 → 界面重构 → 静态门禁 → Git Data API 非强制提交 → 云端单元测试 → 云端 Release → 下载工作区 → 更新本文。
+- 工作区最初 Git HEAD 仍是官方 `00c8d53`，但未提交文件已等价远端；通过 GitHub tree 与本地每个 blob 比较证明零差异后，创建本地快照。**本地快照提交不是远端发布提交**，不要拿本地 `git rev-parse HEAD` 代替本文记录的 Actions head_sha。
+- 备份：`/workspace/pre-polish.patch`、`/workspace/pre-polish-ext.tar.gz`。
+- 保持 applicationId、版本号 2.5.5/190 和项目签名不变；用源码 SHA 与 APK SHA 区分本轮产物，不靠版本名区分。
+
+## R2.2 原界面的具体问题与新信息结构
+
+| 原问题 | 本轮处理 |
+|---|---|
+| 重试页所有参数堆成长表，用户不知道该选什么 | 推荐/快速/耐心预设；基本设置与触发规则分开 |
+| 看不出配置会等待多久 | 普通请求次数、等待序列、等待总和预览 |
+| 保存按钮滚到很下面 | 固定页头与底部操作栏，正文独立滚动 |
+| 整个弹窗丢弃修改没有提醒 | dirty 检查；关闭/返回统一触发放弃确认 |
+| 允许重放半截回复风险不明显 | 风险文案和二次确认，默认仍关闭 |
+| Key 名称、开关、状态、三图标挤在一行 | 卡片标题、状态/掩码/开关、操作行分离；文本操作符合 Material 默认触摸尺寸 |
+| Key 一多就找不到目标 | 别名/Key片段搜索，与状态筛选组合 |
+| 小屏固定480dp列表导致内容被裁切 | 一个 LazyColumn 覆盖统计、操作、列表，不嵌套固定高度列表 |
+| 测试只有短 Toast，离开视线即找不到结果 | 页级结果表，展示成功耗时或脱敏失败摘要，筛选/滚动不会把结果丢掉 |
+| 健康限制一律固定时长 | 网络设置新增全局 KEY 管理，可配置错误动作、恢复、冷却和切换 |
+
+## R2.3 共享布局 `PolicyUi.kt`
+
+路径：`app/src/main/java/me/rerere/rikkahub/ext/ui/PolicyUi.kt`。
+
+### PolicyScreen
+
+- Compose `Dialog`，`usePlatformDefaultWidth=false`；不新增 Navigation route，不破坏官方导航返回栈。
+- 全高窗口、大屏最大宽 840dp；默认仍受屏幕可用尺寸约束。
+- `Surface` 使用当前 Material3 动态主题，不硬编码亮色背景；深色模式同一套结构。
+- `safeDrawingPadding()` + `imePadding()`；固定标题、副标题、关闭按钮；正文占剩余空间；保存栏在正文之外。
+- 调用方提供正文与 footer；设置页采用草稿，Key 条目管理采用即时保存，不混淆两种语义。
+
+### PolicyCard / PolicyHint / PolicyToggle
+
+- 24dp 圆角、`surfaceContainerLow`、16dp 内边距、12dp 组内间距。
+- 标题/说明/控件层次分明；警告使用主题 error 色，但同时保留文字，不只依赖颜色。
+- 开关行可整行点按；总开关关闭后仍允许编辑下一次开启要使用的参数，并在概览明确当前是否生效。
+
+### PolicySlider
+
+- 标题与数值标签并排；滑条为快捷操作，点数值标签可打开数字输入。
+- 数字必须有限且在上下限内；非法/空/NaN/无穷值不可确认。
+- 数字标签与输入单位保持一致：重试等待以秒显示，内部持久化仍为毫秒；停用以小时、冷却以秒。
+- 离散项和滑条统一归一化到配置模型边界；最后保存还会再次 `clamped()`。
+
+### PolicyFooter / PolicyConfirm
+
+- 没有修改时显示“已保存”，保存按钮禁用；有修改时显示“保存更改”。
+- 重置需要确认，仅修改草稿，保存后才影响请求。
+- 关闭有修改的界面时确认放弃，取消确认则继续编辑。
+- Key 健康清除属于即时操作，确认文案明确不需要再点保存。
+
+## R2.4 自动重试界面与交互
+
+文件：`ext/retry/AutoRetrySettingsSheet.kt`。保留函数名减少挂接改动，实际已不再是旧的长底部弹窗。
+
+入口保持：偏好设置 → 网络 → 自动重试行，点击或长按均可；行尾开关仍可直接启停。
+
+### 基本设置页
+
+1. 重试概览：总开关；普通尝试最多 `maxRetries + 1`；关闭时为1。
+2. 基准等待序列：`RetryPolicy.backoffDelay(index, config.copy(jitter=false))`，显示如 `1s → 2s → 4s`。
+3. 总等待：只加等待时间，不包含请求时间；抖动开时注明 ±20% 且不超过上限。
+4. 快速配置：
+
+| 预设 | 额外重试 | 初始等待 | 倍率 | 等待上限 | 部分重放 |
+|---|---:|---:|---:|---:|---|
+| 推荐 | 3 | 1秒 | 2 | 30秒 | 关闭 |
+| 快速 | 2 | 0.5秒 | 2 | 5秒 | 关闭 |
+| 耐心 | 5 | 2秒 | 2 | 60秒 | 关闭 |
+
+预设替换整个 AutoRetryConfig（含规则、安全选项），总开关保持不变；通过完整结构相等判断选中状态。手改后不等于任何预设则标为自定义，避免“已经改了但仍写推荐”。
+
+5. 次数与等待：次数、初始等待、倍率、上限、抖动。
+6. 安全与边界：网络异常重试；部分响应重放开关，开启须确认；说明自动切换另在 KEY 管理设置。
+
+### 触发规则页
+
+- HTTP 标签包含默认码与已选自定义码；点击切换选中。
+- 输入支持 400～599 整数；非法状态码显示错误，不再悄悄丢掉。
+- 重试关键词、停止关键词分别成组；标签点击删除；输入添加时 trim、去重。
+- 明确判定顺序仍是停止词 → 有HTTP码按列表 → 传输异常 → 无码关键词，不改变 R1 RetryPolicy。
+- 空规则集合明确显示“暂无规则”，不是静默空白。
+
+### 草稿生命周期
+
+- `rememberSaveable` 保存启停与 JSON 编码的配置草稿，旋转后不丢已修改参数；入口可见状态同样 saveable。
+- 保存时从当前 `settings` 复制，只替换 `networkSetting.enableAutoRetry/autoRetry`，不会把打开时捕获的整份旧设置长期保留到保存。
+- 未添加真实服务端断点续传；部分重放风险仍在，默认关闭。
+
+## R2.5 多 Key 管理
+
+文件：`ext/keys/ProviderKeyManagerSheet.kt`、`ProviderMultiKeySection.kt`。
+
+### 统计与筛选
+
+状态互斥优先级：
+
+```text
+enabled=false                   -> 人工关闭
+没有当前有效健康限制             -> 可用
+限制.state=COOLDOWN              -> 冷却
+其他有效限制                     -> 自动停用
+```
+
+- 每个筛选标签显示本供应商对应总数，不随搜索文本变化。
+- 搜索匹配 alias 或完整 Key 的片段（大小写不敏感）；列表展示仍是掩码，不显示搜索命中的完整 Key。
+- 搜索+状态为 AND 组合；没有匹配项和 Key 池为空使用不同说明。
+- Key 的默认序号基于完整池，不因筛选改变；LazyColumn key 使用稳定 UUID。
+- 全部不可用时显示原因提示，请求层仍明确失败，禁止旧 apiKey 回退。
+- 全局健康管理关闭时，健康限制暂不参与筛选，人工关闭项仍被排除。
+
+### 条目卡与批量操作
+
+- 标题使用别名或默认序号；掩码+状态和开关一行，测试/编辑/删除/恢复另外一行。
+- 自动停用时开关视为关闭；手动打开同时恢复健康记录。冷却不等于人工关闭，仍保留启用开关和单独冷却状态。
+- 健康原因由记录 reason 显示（无效/额度/限流），不是简单按 state 猜；因此“429 选择停用”仍显示真实限流原因。
+- 有期限显示剩余可重试时间；`Long.MAX_VALUE` 显示“仅手动恢复”，不会显示天文倒计时。
+- 删除需确认；测试中的 Key 不允许编辑/删除。
+- 批量启用/关闭/恢复作用于**本供应商全部 Key**，不是搜索结果；确认文案明确作用范围。
+- 批量启用仅改人工启停，不清健康限制；恢复健康仅清记录，不打开人工关闭的 Key；批量关闭不删 Key。
+
+### 添加、编辑、导入
+
+- 单条保留掩码输入和可见性切换；编辑重复值时直接报错，禁止旧版 normalization 静默吞掉重复项。
+- 非法分隔串仍报“只能单 Key”，批量内容需走导入。
+- 导入默认空白，不读剪贴板；按空白/逗号拆分并去重，显示将新增数量与已存在跳过数量。
+- 只有真正新增数量>0时才可确认，避免“全部重复还导入成功”。
+- 变更都调用 `syncEnabledApiKeysToLegacyField()`；人工全关闭时旧兼容字段也清空。
+
+### 测试
+
+- 仍使用供应商第一个 CHAT 模型；没有模型时解释原因并禁用测试按钮。
+- 实际 `hello` 请求；文案提示可能计费；本次 Provider 副本 `multiKeyEnabled=false`，不再轮换。
+- timeout=30秒；测试作用域是管理页面；关闭页面会取消。
+- 结果按 Key 值存于页级 `mutableStateMapOf`，滚出列表和筛选后仍能看到；进程重启/关闭页面后不持久化探测结果。
+- 成功显示单调时钟 `SystemClock.elapsedRealtime()` 测量的毫秒耗时，成功后才清当前 Key 健康限制。
+- 超时和取消不写失败处罚；其他失败按本次测试值归因。
+- 不展示上游原始响应，只显示 HTTP码或异常类型，防响应正文泄漏其他 Key。
+- 测试成功不会把原先人工关闭的 Key 自动打开。
+
+## R2.6 全局 KEY 管理策略
+
+新入口：**设置 → 偏好设置 → 网络 → KEY 管理**。
+
+新文件：
+
+- `ai/.../util/KeyManagementPolicy.kt`：序列化策略与纯计算函数。
+- `app/.../ext/keys/KeyPolicySettingsScreen.kt`：策略编辑界面。
+
+范围：开启多 Key 的 OpenAI / Google / Claude；Vertex 服务账号不纳入。
+
+### 配置字段与默认值
+
+| 字段 | 默认 | 范围 / 含义 |
+|---|---|---|
+| enabled | true | 管理总开关 |
+| invalidAction | SUSPEND | 无效密钥：IGNORE / COOLDOWN / SUSPEND |
+| quotaAction | SUSPEND | 明确余额不足：同上 |
+| rateLimitAction | COOLDOWN | 普通429：同上 |
+| suspendHours | 24 | 1～720小时 |
+| manualRecoveryOnly | false | 开启后停用无自动到期 |
+| cooldownSeconds | 60 | 1～3600秒 |
+| maxCooldownSeconds | 1800 | 不低于基数，最高86400秒 |
+| cooldownMultiplier | 2.0 | 1～5，非有限值退默认 |
+| autoSwitch | true | Key级故障是否允许切换尝试 |
+| maxSwitches | 8 | 0～20次额外尝试，0禁止专用切换 |
+| switchDelayMs | 300 | 0～10000毫秒 |
+
+### 判定与动作必须分离
+
+```text
+Throwable
+  -> KeyHealthRegistry.classify()
+     >=500           NEUTRAL（优先，正文含Key错误也不处罚）
+     401             INVALID
+     402             QUOTA
+     明确余额词       QUOTA
+     明确Key无效词    INVALID
+     普通429          COOLDOWN
+     其余             NEUTRAL
+  -> policy.action(verdict)
+     总开关关闭 / NEUTRAL -> IGNORE
+     其他按三类用户配置
+  -> mark()
+     IGNORE   不创建/刷新健康限制
+     COOLDOWN 保存冷却与真实reason
+     SUSPEND  保存停用与真实reason
+```
+
+其中 `KeyVerdict.COOLDOWN` 是旧命名，语义是“普通限流错误”；用户可以把该类改为 SUSPEND 或 IGNORE，不要因枚举名把动作写死。
+
+### 恢复语义
+
+- 策略更改只处理后续失败，不重写已有记录的 until；否则调一个滑条就让历史全部 Key 状态突变。
+- `enabled=false` 时请求选择和UI都忽略已有健康记录，但保留记录文件；恢复总开关后未过期记录再次限制。
+- 人工 `enabled=false` 永远优先，策略不能偷偷恢复人工关闭项。
+- 手动恢复、测试成功、全局清除等显式操作可以清记录。
+- `manualRecoveryOnly=true` 的停用记录 `until=Long.MAX_VALUE`，重启后继续生效；UI计时器不为永久记录每秒唤醒。
+- 清除全部供应商健康限制是即时操作，二次确认，不影响草稿策略，也不删除条目或别名。
+
+### 冷却公式与记录兼容
+
+```text
+n = 1..32
+wait = min(baseSeconds * 1000 * multiplier^(n-1), maxSeconds*1000)
+```
+
+- 24h内重复冷却累加次数，超过窗口归1；倍率1为固定冷却。
+- 旧记录没有 action 字段时，用旧 state==COOLDOWN 判断连续冷却历史。
+- KeyHealthRecord 新增可选 `action: KeyFailureAction?=null`，旧 JSON 可读。
+- 非冷却处罚打断冷却累积；当前进程到期记录保留供下一次指数计算，启动加载仍会过滤已到期记录，因此跨重启的已过期冷却历史不保证累积。
+- AtomicFile 与串行修改保留；持久化失败仅记录警告，当次内存状态仍生效，不能宣称任何磁盘故障下都能保存。
+
+### 策略同步与层次
+
+```text
+NetworkSetting.keyManagement（DataStore序列化）
+  -> SettingsStore.settingsFlowRaw.onEach
+  -> KeyRotationPolicy.configure(clamped)
+  -> KeyHealthRegistry.policy
+  -> policyFlow（UI响应）
+
+SettingsStore.update(settings)
+  -> 同步 configure
+  -> 发布 settingsFlow + 写 DataStore
+```
+
+不依赖进入设置页才生效。策略属于 ai 层，ai 不反向依赖 app 数据类。
+
+### 与重试的准确关系
+
+- `isKeyLevelError` 不再只判断分类非 NEUTRAL，还判断当前策略是否真的处理该错误；IGNORE 不走专用 Key 切换。
+- 切换需总开关、autoSwitch、maxSwitches>0、Key级错误以及存在 ready alternative。
+- 专用切换使用用户预算和延迟，不再偷偷 `maxOf(maxRetries,8)`。
+- 普通网络重试和专用切换共用当前失败计数，不是两个可以相加的独立计数器；已经用掉的普通重试会计入后续切换预算。
+- `autoSwitch=false` 仅禁用专用Key故障切换；普通重试若被 RetryPolicy 允许，每次 attempt 仍正常挑选可用Key。因此不应承诺“关闭autoSwitch后所有重试永远固定同一Key”。
+- 全池实际无 ready Key 时仍报池耗尽；只是用户关闭切换但池中有可用Key时，不应错误提示所有Key耗尽。
+- 部分响应保护仍先于重试/切换，默认不重放；取消始终中断。
+
+## R2.7 文件地图
+
+### 新增（4个Kotlin文件）
+
+```text
+ai/src/main/java/me/rerere/ai/util/KeyManagementPolicy.kt
+ai/src/test/java/me/rerere/ai/util/KeyManagementPolicyTest.kt
+app/src/main/java/me/rerere/rikkahub/ext/ui/PolicyUi.kt
+app/src/main/java/me/rerere/rikkahub/ext/keys/KeyPolicySettingsScreen.kt
+```
+
+### 修改
+
+```text
+ai/.../util/KeyHealth.kt
+ai/.../util/KeyRoulette.kt
+app/.../data/ai/GenerationLoop.kt
+app/.../data/datastore/PreferencesStore.kt
+app/.../ext/retry/AutoRetrySettingsSheet.kt
+app/.../ext/keys/ProviderKeyManagerSheet.kt
+app/.../ext/keys/ProviderMultiKeySection.kt
+app/.../ui/pages/setting/SettingPreferencesNetworkPage.kt
+app/src/main/res/values/strings.xml
+app/src/main/res/values-zh/strings.xml
+scripts/check_custom_static.py
+.github/workflows/daily-build.yml
+```
+
+未改：三类 Provider 认证实现、消息防丢保存链、Gradle版本、签名证书、Firebase占位机制、applicationId。
+
+## R2.8 验证方案与后续迁移
+
+### 静态检查
+
+命令仍使用原 `scripts/check_custom_static.py`，R2增加策略边界、UI生命周期、测试脱敏、搜索筛选、超时取消、参数接线等源码断言。基于 `00c8d53` 覆盖前两轮累积改动，不能把检查数字当真实运行测试数量。
+
+### 云端单元测试
+
+在 `Gradle Build` 前增加：
+
+```bash
+./gradlew :ai:testDebugUnitTest \
+  --tests 'me.rerere.ai.util.KeyManagementPolicyTest' \
+  --tests 'me.rerere.ai.util.ManagedKeysTest'
+```
+
+新8项：旧配置默认值、总开关关闭、三类独立动作、默认指数及封顶、固定冷却与边界次数、数值clamp/NaN、永久恢复配置序列化、普通403/5xx中立。
+
+原7项：旧单Key、导入去重、全关闭不回退、兼容字段清空、轮询/固定副本、错误分类、服务账号绕过。
+
+### 人工设备回归（未执行时不能写成已通过）
+
+- 小屏、横屏、大字体：标题/关闭和保存可达，滚动到底不裁切；输入法弹出后可确认。
+- 旋转期间修改草稿；返回放弃/取消；预设后手改显示自定义。
+- 429冷却、401停用、额度冷却、限流停用、总开关关闭等矩阵。
+- 关闭autoSwitch与普通重试分别测试，确认无误导池耗尽。
+- Key足够多：搜索、各状态切换、编辑重复、只含重复Key的导入。
+- 测试成功、HTTP失败、超时、取消、滚动离屏；结果不泄漏Key。
+- 人工关闭后清健康、永久停用重启、临时关闭健康总开关后恢复。
+- 消息防丢与半截回复默认不重放回归。
+
+### 官方新版本迁移顺序
+
+1. 保留 R1 保存链，先验证新官方是否改变 SettingsStore/ProviderSetting/GenerationLoop。
+2. 移植 KeyManagementPolicy 和 KeyHealthRecord.action 默认值。
+3. 对齐 KeyHealthRegistry 的分类→动作、configure、recordOf总开关、clearAll。
+4. 对齐 KeyRotationPolicy 的配置flow、isKeyLevelError语义。
+5. NetworkSetting 添加默认策略；SettingsStore 加载/update挂接。
+6. GenerationLoop 替换固定切换常量，不删取消与部分响应保护。
+7. 引入 PolicyUi 及三个管理界面；网络页入口、Provider页入口；复制双语 `polish_*` 资源。
+8. 运行静态门禁及15项ai测试，云端assembleRelease，核验APK签名和SHA。
+9. 下载产物并更新本节构建记录；源码与文档提交分开记录。
+
+---
+
+# R1：消息防丢、重试与多 Key 基础实现（历史基线）
+
+> 以下原规范完整保留作为保存链、基础算法和构建环境说明；R2 已覆盖的 UI、固定健康参数和构建产物，以前文 R2 为准。
+
 
 > **文档性质：唯一维护依据（FINAL / AUTHORITATIVE）**
 >
