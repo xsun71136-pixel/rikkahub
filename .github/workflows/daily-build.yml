@@ -105,12 +105,12 @@ jobs:
                   "android_client_info": {
                     "package_name": "me.rerere.rikkahub"
                   }
-                }
-              }
-            ],
-            "api_key": [
-              {
-                "current_key": "AIzaSyDUMMY_RIKKAHUB_BUILD_ONLY_KEY"
+                },
+                "api_key": [
+                  {
+                    "current_key": "AIzaSyDUMMY_RIKKAHUB_BUILD_ONLY_KEY"
+                  }
+                ]
               }
             ],
             "configuration_version": "1"
