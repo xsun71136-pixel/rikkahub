@@ -442,6 +442,7 @@ class SettingsStore(
             )
         }
         .onEach {
+            me.rerere.ai.util.KeyRotationPolicy.configure(it.networkSetting.keyManagement)
             get<PebbleEngine>().templateCache.invalidateAll()
         }
 
@@ -454,6 +455,7 @@ class SettingsStore(
             Log.w(TAG, "Cannot update dummy settings")
             return
         }
+        me.rerere.ai.util.KeyRotationPolicy.configure(settings.networkSetting.keyManagement)
         settingsFlow.value = settings
         persistSettings(dataStore, settings)
     }
@@ -618,6 +620,7 @@ data class Settings(
 
 @Serializable
 data class NetworkSetting(
+    val keyManagement: me.rerere.ai.util.KeyManagementPolicy = me.rerere.ai.util.KeyManagementPolicy(),
     val userAgent: String = "",
     val proxyUrl: String = "",
     val proxyUsername: String = "",

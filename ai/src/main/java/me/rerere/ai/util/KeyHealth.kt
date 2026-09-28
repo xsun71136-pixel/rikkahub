@@ -26,8 +26,6 @@ private const val TAG = "KeyHealth"
 private const val HEALTH_FILE = "ai_key_health.json"
 
 /** 冷却基数与上限：重复 429 按 1min → 2min → 4min … 指数增长，封顶 30min。 */
-private const val COOLDOWN_BASE_MS = 60_000L
-private const val COOLDOWN_MAX_MS = 30 * 60_000L
 
 /** 停用（无效/无额度）记录的自动过期时间：24h 后允许再次尝试（额度可能已恢复）。 */
 private const val SUSPEND_TTL_MS = 24 * 60 * 60_000L
@@ -57,6 +55,7 @@ data class KeyHealthRecord(
     /** 最近一次失败原因摘要（UI 展示用）。 */
     val reason: String = "",
     val updatedAt: Long = 0,
+    val action: KeyFailureAction? = null,
 )
 
 /** 该 provider 没有立即可用的 Key（空池、禁用、停用或冷却中）。 */
@@ -67,6 +66,15 @@ class AllKeysSuspendedException(val providerId: String) :
 internal enum class KeyVerdict { INVALID, QUOTA, COOLDOWN, NEUTRAL }
 
 object KeyHealthRegistry {
+    @Volatile
+    var policy: KeyManagementPolicy = KeyManagementPolicy()
+        private set
+
+    fun configure(value: KeyManagementPolicy) { policy = value.clamped() }
+
+    @Synchronized
+    fun clearAll() = update { emptyMap() }
+
 
     private val _health =
         MutableStateFlow<Map<String, Map<String, KeyHealthRecord>>>(emptyMap())
@@ -158,6 +166,7 @@ object KeyHealthRegistry {
     /** 当前有效记录；过期记录保留用于连续冷却计数，不阻止使用。 */
     @Synchronized
     fun recordOf(providerId: String, keyValue: String): KeyHealthRecord? {
+        if (!policy.enabled) return null
         val record = _health.value[providerId]?.get(keyValue) ?: return null
         if (record.until <= System.currentTimeMillis()) {
             // Keep the expired record for exponential cooldown history; it is not selectable evidence.
@@ -175,23 +184,25 @@ object KeyHealthRegistry {
     internal fun mark(providerId: String, keyValue: String, verdict: KeyVerdict, reason: String) {
         val now = System.currentTimeMillis()
         val previous = _health.value[providerId]?.get(keyValue)
-        val record = when (verdict) {
-            KeyVerdict.INVALID ->
-                KeyHealthRecord(KeyHealthState.INVALID, now + SUSPEND_TTL_MS, 1, reason, now)
-
-            KeyVerdict.QUOTA ->
-                KeyHealthRecord(KeyHealthState.QUOTA, now + SUSPEND_TTL_MS, 1, reason, now)
-
-            KeyVerdict.COOLDOWN -> {
-                val fails = if (previous?.state == KeyHealthState.COOLDOWN &&
-                    now - previous.updatedAt < SUSPEND_TTL_MS) (previous.fails + 1).coerceAtMost(32) else 1
-                val duration = (COOLDOWN_BASE_MS * (1L shl (fails - 1).coerceIn(0, 5)))
-                    .coerceAtMost(COOLDOWN_MAX_MS)
-                KeyHealthRecord(KeyHealthState.COOLDOWN, now + duration, fails, reason, now)
-            }
-
-            KeyVerdict.NEUTRAL -> return
+        val config = policy
+        val action = config.action(verdict)
+        if (action == KeyFailureAction.IGNORE) return
+        val fails = if (previous != null && (previous.action == KeyFailureAction.COOLDOWN ||
+            (previous.action == null && previous.state == KeyHealthState.COOLDOWN))) {
+            if (now - previous.updatedAt < SUSPEND_TTL_MS) (previous.fails + 1).coerceAtMost(32) else 1
+        } else 1
+        val state = when {
+            action == KeyFailureAction.COOLDOWN -> KeyHealthState.COOLDOWN
+            verdict == KeyVerdict.QUOTA -> KeyHealthState.QUOTA
+            else -> KeyHealthState.INVALID
         }
+        val until = when (action) {
+            KeyFailureAction.COOLDOWN -> now + config.cooldownDurationMs(fails)
+            KeyFailureAction.SUSPEND -> if (config.manualRecoveryOnly) Long.MAX_VALUE
+                else now + config.suspendHours * 3600_000L
+            KeyFailureAction.IGNORE -> return
+        }
+        val record = KeyHealthRecord(state, until, fails, reason, now, action)
         Log.i(TAG, "mark provider=$providerId state=${record.state} until=${record.until} reason=$reason")
         update { current ->
             current + (providerId to ((current[providerId] ?: emptyMap()) + (keyValue to record)))

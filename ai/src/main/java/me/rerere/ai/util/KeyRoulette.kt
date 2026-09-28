@@ -19,6 +19,15 @@ object KeyRotationPolicy {
 
     fun init(context: Context) = KeyHealthRegistry.init(context)
     val healthFlow = KeyHealthRegistry.health
+    private val _policy = kotlinx.coroutines.flow.MutableStateFlow(KeyManagementPolicy())
+    val policyFlow: kotlinx.coroutines.flow.StateFlow<KeyManagementPolicy> = _policy
+    val policy: KeyManagementPolicy get() = _policy.value
+    fun configure(value: KeyManagementPolicy) {
+        val normalized = value.clamped()
+        KeyHealthRegistry.configure(normalized)
+        _policy.value = normalized
+    }
+    fun clearAllHealth() = KeyHealthRegistry.clearAll()
 
     fun manages(provider: ProviderSetting): Boolean = provider.isMultiKeyEnabled() &&
         !(provider is ProviderSetting.Google && provider.vertexAI && provider.useServiceAccount)
@@ -47,7 +56,8 @@ object KeyRotationPolicy {
     }
 
     fun isKeyLevelError(error: Throwable): Boolean =
-        error !is kotlinx.coroutines.CancellationException && KeyHealthRegistry.classify(error) != KeyVerdict.NEUTRAL
+        error !is kotlinx.coroutines.CancellationException &&
+            policy.action(KeyHealthRegistry.classify(error)) != KeyFailureAction.IGNORE
 
     fun hasReadyAlternative(provider: ProviderSetting): Boolean = manages(provider) &&
         KeyHealthRegistry.filterReady(provider.id.toString(), provider.activeApiKeyValuesForRequest()).isNotEmpty()

@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.ui.pages.setting
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -88,7 +90,8 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
     var proxyPasswordVisible by remember { mutableStateOf(false) }
     var proxyDialogVisible by remember { mutableStateOf(false) }
     // [自定义修改] 高级自动重试配置弹窗（docs/custom/2026-09-three-features-plan.md）
-    var showAutoRetrySheet by remember { mutableStateOf(false) }
+    var showKeyPolicy by rememberSaveable { mutableStateOf(false) }
+    var showAutoRetrySheet by rememberSaveable { mutableStateOf(false) }
     val defaultUserAgent = "RikkaHub-Android/${BuildConfig.VERSION_NAME}"
     val proxyUrlInvalid = proxyUrlDraft.isNotBlank() && proxyUrlDraft.toProxyOrNull() == null
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -269,6 +272,13 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
         onUpdateSettings = { vm.updateSettings(it) },
     )
 
+    me.rerere.rikkahub.ext.keys.KeyPolicySettingsScreen(
+        visible = showKeyPolicy,
+        onDismissRequest = { showKeyPolicy = false },
+        settings = settings,
+        onUpdateSettings = { vm.updateSettings(it) },
+    )
+
     Scaffold(
         topBar = {
             LargeFlexibleTopAppBar(
@@ -318,6 +328,16 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
                                 },
                             )
                         },
+                    )
+                }
+            }
+            item {
+                CardGroup(modifier = Modifier.padding(horizontal = 8.dp)) {
+                    item(
+                        headlineContent = { Text(stringResource(R.string.polish_key_policy)) },
+                        supportingContent = { Text(stringResource(R.string.polish_policy_summary)) },
+                        trailingContent = { Icon(HugeIcons.ArrowRight01, null) },
+                        modifier = Modifier.clickable { showKeyPolicy = true },
                     )
                 }
             }

@@ -9,6 +9,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.delay
@@ -47,23 +48,25 @@ fun ProviderMultiKeySection(
     provider: ProviderSetting,
     onEdit: (ProviderSetting) -> Unit,
 ) {
-    var showManager by remember { mutableStateOf(false) }
+    var showManager by rememberSaveable { mutableStateOf(false) }
     // [自定义修改] 可用计数 = 启用且未被自动停用（无效/无额度/冷却中）的 Key
     val health by KeyRotationPolicy.healthFlow.collectAsState()
+    val policy by KeyRotationPolicy.policyFlow.collectAsState()
     var now by remember(provider.id) { mutableStateOf(System.currentTimeMillis()) }
     val records = health[provider.id.toString()].orEmpty()
-    LaunchedEffect(records) {
+    LaunchedEffect(records, policy) {
         now = System.currentTimeMillis()
-        while (records.values.any { it.until > now }) {
+        while (policy.enabled && records.values.any { it.until > now && it.until != Long.MAX_VALUE }) {
             delay(1000)
             now = System.currentTimeMillis()
         }
     }
     val activeCount = provider.activeApiKeyValuesForRequest().count { value ->
-        (records[value]?.until ?: 0L) <= now
+        !policy.enabled || (records[value]?.until ?: 0L) <= now
     }
     val totalCount = provider.getProviderApiKeys().normalizedProviderApiKeys().size
 
+    me.rerere.rikkahub.ext.ui.PolicyCard(stringResource(R.string.setting_provider_page_multi_key_mode)) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -107,6 +110,7 @@ fun ProviderMultiKeySection(
         }
     }
 
+    }
     if (showManager) {
         ProviderKeyManagerSheet(
             provider = provider,

@@ -120,6 +120,35 @@ checks_by_name = {
         and all(f == '.github/workflows/daily-build.yml' or not f.startswith('.github/') for f in files)
     ),
 }
+key_policy = read(ai + 'util/KeyManagementPolicy.kt')
+key_ui = read(app + 'ext/keys/ProviderKeyManagerSheet.kt')
+retry_ui = read(app + 'ext/retry/AutoRetrySettingsSheet.kt')
+policy_ui = read(app + 'ext/keys/KeyPolicySettingsScreen.kt')
+shared_ui = read(app + 'ext/ui/PolicyUi.kt')
+store = read(app + 'data/datastore/PreferencesStore.kt')
+checks_by_name.update({
+    'policy serialized with compatible defaults': '@Serializable' in key_policy and 'val enabled: Boolean = true' in key_policy and 'keyManagement:' in store,
+    'policy clamps invalid numeric input': 'cooldownMultiplier.isFinite()' in key_policy and 'maxSwitches.coerceIn(0, 20)' in key_policy,
+    'classification separate from action': 'config.action(verdict)' in health and 'action == KeyFailureAction.IGNORE' in health,
+    'policy applies without opening UI': store.count('KeyRotationPolicy.configure(') == 2,
+    'disabled policy ignores old health records': 'if (!policy.enabled) return null' in health,
+    'manual recovery durable': 'Long.MAX_VALUE' in health,
+    'switch budget is configurable': 'keyPolicy.maxSwitches' in loop and 'keyPolicy.switchDelayMs' in loop and 'KEY_SWITCH_BUDGET' not in loop,
+    'all key health clear is explicit': 'confirm = "clear"' in policy_ui and 'KeyRotationPolicy.clearAllHealth()' in policy_ui,
+    'fixed header footer and bounded body': 'Modifier.weight(1f).fillMaxWidth()' in shared_ui and 'footer()' in shared_ui,
+    'key manager no fixed 480dp viewport': 'max = 480.dp' not in key_ui and 'LazyColumn' in key_ui,
+    'key search plus state filter': 'query.trim()' in key_ui and 'category(it) == filter' in key_ui,
+    'key tests stay request local and bounded': 'withTimeout(30000)' in key_ui and 'withSingleApiKeyForRequest(apiKey.value)' in key_ui,
+    'key timeout is not penalized': key_ui.index('catch (error: TimeoutCancellationException)') < key_ui.index('catch (error: Throwable)'),
+    'tests never echo upstream credentials': 'error.message' not in key_ui,
+    'duplicate edit rejected': '!duplicate && value.isNotBlank()' in key_ui,
+    'import previews additions and duplicates': 'parsed.size - parsedCount' in key_ui,
+    'retry preview deterministic': 'config.copy(jitter = false)' in retry_ui,
+    'partial replay requires confirmation': 'partialConfirm = true' in retry_ui,
+    'settings drafts survive rotation': 'rememberSaveable' in retry_ui and 'rememberSaveable' in policy_ui,
+    'discard prompts in both settings': 'polish_discard_desc' in retry_ui and 'polish_discard_desc' in policy_ui,
+    'network key management entry': 'showKeyPolicy = true' in read(app + 'ui/pages/setting/SettingPreferencesNetworkPage.kt'),
+})
 for name, condition in checks_by_name.items(): check(name, condition)
 for f in ['claude/ClaudeProvider.kt', 'google/GoogleProvider.kt', 'openai/ChatCompletionsAPI.kt', 'openai/ResponseAPI.kt']:
     source = read(ai + 'provider/providers/' + f)

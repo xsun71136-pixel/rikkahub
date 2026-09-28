@@ -62,8 +62,6 @@ private const val MAX_TOOL_OUTPUT_CHARS = 32 * 1024
 private const val TOOL_OUTPUT_PREVIEW_CHARS = 4 * 1024
 // [自定义修改] 重试次数/延迟改由 AutoRetryConfig 配置驱动（docs/custom/2026-09-three-features-plan.md）
 // [自定义修改] 多 Key 联动：Key 级故障（无效/额度/限流）时的切换重试预算与延迟
-private const val KEY_SWITCH_BUDGET = 8
-private const val KEY_SWITCH_DELAY_MS = 300L
 
 private class StreamChunkHandlingException(cause: Throwable) : RuntimeException(cause)
 
@@ -563,7 +561,8 @@ class GenerationLoop(
         // [自定义修改] 多 Key 联动：单 Key 失效/无额度时自动切换到下一个可用 Key 继续，
         // 不受"停止关键词"（余额/额度/invalid key）与自动重试总开关的限制——
         // 停止关键词的语义是"这个 Key 别再用了"，而不是"整条消息放弃"。
-        val canSwitchKey = provider != null &&
+        val keyPolicy = KeyRotationPolicy.policy
+        val canSwitchKey = keyPolicy.enabled && keyPolicy.autoSwitch && keyPolicy.maxSwitches > 0 && provider != null &&
                 KeyRotationPolicy.isKeyLevelError(error) &&
                 KeyRotationPolicy.hasReadyAlternative(provider)
 
@@ -572,18 +571,18 @@ class GenerationLoop(
         // 导致 429/5xx 从不触发重试。见 docs/custom/2026-09-three-features-plan.md
         val config = retryConfig.clamped()
         if (provider != null && KeyRotationPolicy.manages(provider) &&
-            KeyRotationPolicy.isKeyLevelError(error) && !canSwitchKey) {
+            KeyRotationPolicy.isKeyLevelError(error) && !KeyRotationPolicy.hasReadyAlternative(provider)) {
             throw IllegalStateException(context.getString(R.string.error_all_keys_suspended), error)
         }
         val shouldRetry = canSwitchKey || (enabled && RetryPolicy.shouldRetry(error, config))
-        val budget = if (canSwitchKey) maxOf(config.maxRetries, KEY_SWITCH_BUDGET) else config.maxRetries
+        val budget = if (canSwitchKey) keyPolicy.maxSwitches else config.maxRetries
         if (!shouldRetry || retryCount >= budget) {
             throw error
         }
 
         val nextRetryCount = retryCount + 1
         val retryDelay =
-            if (canSwitchKey) KEY_SWITCH_DELAY_MS else RetryPolicy.backoffDelay(retryCount, config)
+            if (canSwitchKey) keyPolicy.switchDelayMs else RetryPolicy.backoffDelay(retryCount, config)
         processingStatus.value = context.getString(
             if (canSwitchKey) R.string.chat_generation_key_switching
             else R.string.chat_generation_network_retrying,

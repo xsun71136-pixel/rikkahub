@@ -119,6 +119,11 @@ jobs:
             echo "GOOGLE_SERVICES_JSON missing or invalid; using build-only Firebase placeholder"
           fi
 
+      - name: Key policy unit tests
+        run: |
+          chmod +x gradlew
+          ./gradlew :ai:testDebugUnitTest --tests 'me.rerere.ai.util.KeyManagementPolicyTest' --tests 'me.rerere.ai.util.ManagedKeysTest'
+
       - name: Gradle Build
         run: |
           chmod +x gradlew
