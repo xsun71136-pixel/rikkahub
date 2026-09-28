@@ -108,6 +108,11 @@ jobs:
                 }
               }
             ],
+            "api_key": [
+              {
+                "current_key": "AIzaSyDUMMY_RIKKAHUB_BUILD_ONLY_KEY"
+              }
+            ],
             "configuration_version": "1"
           }
           JSON
