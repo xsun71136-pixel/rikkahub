@@ -45,6 +45,32 @@
 本轮必须以云端 Kotlin/Android 测试和 `assembleRelease` 成功为打包前提。静态门禁不能代替编译；APK下载后还要校验ZIP CRC、asset SHA-256、APK v2内容摘要和RSA签名。没有真实设备安装、切换消息、杀进程和外部测试连接实测前，不宣称UI观感和全部设备生命周期已经验收。
 
 
+## R4.0 最终打磨构建与安装测试包（2026-09-29）
+
+- 功能源码提交：`bc3b410e7606a39e443d637643edf3396fe91804`。
+- CI/Firebase Debug 修复提交：`584e8bc5074eb6f3c6b6bc99c70d8409de2556ed`。
+- Actions：https://github.com/xsun71136-pixel/rikkahub/actions/runs/36517650377 。
+- AI Key policy tests：成功。
+- 应用可靠性/重试测试：成功；包含 `RetryPolicyTest`、`StreamDraftSaverTest`、`MessageResilienceTest`、`ConversationSessionTest`。
+- `assembleRelease`：成功；Nightly 发布成功。
+- 静态门禁：476项通过，0失败。
+- Debug 测试第一次失败的原因是 CI 占位 `google-services.json` 缺少 `me.rerere.rikkahub.debug` client，不是源码错误；已在CI准备步骤为真实Secret和占位配置补齐debug client，重跑成功。
+- 设备UI、切换消息、杀进程和外部测试连接尚未由助手实际操作验证；APK交付给用户进行安装测试。
+
+产物目录：`/workspace/RikkaHub-R4-584e8bc5/`。
+
+| APK | 字节数 | SHA-256 |
+|---|---:|---|
+| `app-arm64-v8a-release.apk` | 40,408,494 | `afe9fd1f6380e251c42e17baebf9df105a88787a7e99c6a65603acd9c4492636` |
+| `app-universal-release.apk` | 50,328,596 | `cbcb823c10b9e185240072db959777463428685a07ff30877eb227525033d59a` |
+| `app-x86_64-release.apk` | 41,074,984 | `f3dd42c911cf35de334f4f8574780515cc811fd9069bb7d0e36f9932ef673246` |
+
+三个APK已通过ZIP CRC、Release asset SHA-256、APK v2 Signing Block、v2内容摘要及OpenSSL RSA签名验证。签名证书SHA-256：`A3034D498769D47DEB45826D222CBBFC633A74E00CAECAB4F8ABB32B2812CD33`；算法：RSA PKCS#1 v1.5 SHA-256 (`0x0103`)。
+
+安装建议：优先安装`app-arm64-v8a-release.apk`；如果设备ABI不确定，安装`app-universal-release.apk`。不要同时覆盖安装不同签名的官方包；本包使用RikkaHub项目既有签名。
+
+本轮重点验收：先测试外部“测试连接”中的401/429/403/5xx和超时，再做正常对话；确认401/额度/429按实际Key进入停用或冷却，普通403/5xx/网络异常不误停用。随后在流式生成中切换会话、返回原会话、取消、杀后台再打开，确认半截内容和最终消息仍在。
+
 ## R3.0 构建、验证与工作区交付（2026-09-29）
 
 - 源码提交：`69d2594378440a4f49e7bc243c87732b5d33f722`。
