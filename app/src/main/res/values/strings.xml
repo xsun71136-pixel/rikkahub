@@ -1599,4 +1599,11 @@
     <string name="key3_minutes">%1$d min</string>
     <string name="key3_seconds">%1$d s</string>
     <string name="key3_name_hint">Required name, up to 80 characters</string>
+    <string name="key3_on">On</string>
+    <string name="retry_codes_count">%1$d status codes</string>
+    <string name="retry_keywords_count">%1$d retry keywords</string>
+    <string name="retry_stop_count">%1$d stop keywords</string>
+    <string name="retry_timing_summary">%1$d retries · %2$dms → %3$dms · %4$.1f×</string>
+    <string name="retry_partial_on">Partial response replay enabled</string>
+    <string name="retry_partial_protected">Partial response is protected</string>
 </resources>

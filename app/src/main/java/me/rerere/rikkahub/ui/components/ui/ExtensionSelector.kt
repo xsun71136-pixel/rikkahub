@@ -42,7 +42,7 @@ fun ExtensionSelector(
     settings: Settings,
     onUpdate: (Assistant) -> Unit,
     conversation: Conversation? = null,
-    onUpdateConversation: ((Conversation) -> Unit)? = null,
+    onUpdateConversation: (((Conversation) -> Conversation) -> Unit)? = null,
     onNavigateToQuickMessages: () -> Unit = {},
     onNavigateToPrompts: () -> Unit = {},
     onNavigateToSkills: () -> Unit = {},
@@ -154,7 +154,7 @@ fun ExtensionSelector(
                                     selectedModeInjectionIds - id
                                 }
                                 if (useConversationInjections) {
-                                    onUpdateConversation(conversation.copy(modeInjectionIds = newIds))
+                                    onUpdateConversation { it.copy(modeInjectionIds = newIds) }
                                 } else {
                                     onUpdate(assistant.copy(modeInjectionIds = newIds))
                                 }
@@ -182,7 +182,7 @@ fun ExtensionSelector(
                                     selectedLorebookIds - id
                                 }
                                 if (useConversationInjections) {
-                                    onUpdateConversation(conversation.copy(lorebookIds = newIds))
+                                    onUpdateConversation { it.copy(lorebookIds = newIds) }
                                 } else {
                                     onUpdate(assistant.copy(lorebookIds = newIds))
                                 }

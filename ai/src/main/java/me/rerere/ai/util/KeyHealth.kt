@@ -182,6 +182,9 @@ object KeyHealthRegistry {
         val custom = config.customRules.firstOrNull { it.matches(status, text) }
         if (custom != null) return Decision(KeyVerdict.NEUTRAL, custom.behavior.clamped(), custom.id)
         val verdict = classify(error)
+        // The policy's enabled switch is a hard gate. Keep classification separate
+        // so callers can still distinguish a neutral 403/5xx from a key failure.
+        if (verdict == KeyVerdict.NEUTRAL) return neutral
         return Decision(verdict, config.rule(verdict))
     }
 

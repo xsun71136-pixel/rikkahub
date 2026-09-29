@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.ui.pages.chat
 
+
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.hugeicons.stroke.ArrowDown01
@@ -334,20 +335,20 @@ private fun ChatListNormal(
                     ) {
                         ChatMessage(
                             node = node,
-                            model = node.currentMessage.modelId?.let(modelById::get),
+                            model = node.safeCurrentMessage?.modelId?.let(modelById::get),
                             assistant = assistant,
                             loading = loading && index == lastMessageIndex,
                             onRegenerate = {
-                                onRegenerate(node.currentMessage)
+                                node.safeCurrentMessage?.let(onRegenerate)
                             },
                             onEdit = {
-                                onEdit(node.currentMessage)
+                                node.safeCurrentMessage?.let(onEdit)
                             },
                             onFork = {
-                                onForkMessage(node.currentMessage)
+                                node.safeCurrentMessage?.let(onForkMessage)
                             },
                             onDelete = {
-                                onDelete(node.currentMessage)
+                                node.safeCurrentMessage?.let(onDelete)
                             },
                             onShare = {
                                 selecting = true  // 使用 CoroutineScope 延迟状态更新
@@ -506,8 +507,8 @@ private fun ChatListNormal(
                 },
                 conversation = conversation,
                 selectedMessages = conversation.messageNodes
-                    .filter { it.id in selectedItems && it.messages.isNotEmpty() }
-                    .map { it.currentMessage }
+                    .filter { it.id in selectedItems }
+                    .mapNotNull { it.safeCurrentMessage }
             )
 
             val captureProgress = LocalScrollCaptureInProgress.current

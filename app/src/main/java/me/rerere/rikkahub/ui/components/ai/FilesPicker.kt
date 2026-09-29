@@ -94,7 +94,7 @@ internal fun FilesPicker(
     mcpManager: McpManager,
     onCompressContext: (additionalPrompt: String, targetTokens: Int, keepRecentMessages: Int) -> Job,
     onUpdateAssistant: (Assistant) -> Unit,
-    onUpdateConversation: (Conversation) -> Unit,
+    onUpdateConversation: ((Conversation) -> Conversation) -> Unit,
     showInjectionSheet: Boolean,
     onShowInjectionSheetChange: (Boolean) -> Unit,
     showCompressDialog: Boolean,
@@ -277,7 +277,7 @@ internal fun FilesPicker(
                     workspaceId = boundWorkspace.id,
                     currentCwd = conversation.workspaceCwd,
                     onSelectCwd = { newCwd ->
-                        onUpdateConversation(conversation.copy(workspaceCwd = newCwd))
+                        onUpdateConversation { it.copy(workspaceCwd = newCwd) }
                     },
                     onDismiss = { showCwdSheet = false },
                 )
@@ -315,7 +315,7 @@ private fun WorkspacePickerListItem(
     conversation: Conversation,
     workspaces: List<WorkspaceEntity>,
     onUpdateAssistant: (Assistant) -> Unit,
-    onUpdateConversation: (Conversation) -> Unit,
+    onUpdateConversation: ((Conversation) -> Conversation) -> Unit,
     onNavigateToDetail: (String) -> Unit,
     onNavigateToTerminal: (String) -> Unit,
     onNavigateToManage: () -> Unit,
@@ -381,7 +381,7 @@ private fun WorkspacePickerListItem(
                 if (newId != assistant.workspaceId) {
                     onUpdateAssistant(assistant.copy(workspaceId = newId))
                     if (conversation.workspaceCwd != null) {
-                        onUpdateConversation(conversation.copy(workspaceCwd = null))
+                        onUpdateConversation { it.copy(workspaceCwd = null) }
                     }
                 }
                 showSheet = false
@@ -401,7 +401,7 @@ private fun InjectionQuickConfigSheet(
     assistant: Assistant,
     settings: Settings,
     onUpdateAssistant: (Assistant) -> Unit,
-    onUpdateConversation: (Conversation) -> Unit,
+    onUpdateConversation: ((Conversation) -> Conversation) -> Unit,
     onDismiss: () -> Unit,
     onDismissAll: () -> Unit,
 ) {

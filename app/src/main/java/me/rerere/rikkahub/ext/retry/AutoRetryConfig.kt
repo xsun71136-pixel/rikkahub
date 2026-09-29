@@ -66,7 +66,10 @@ data class AutoRetryConfig(
         initialDelayMs = initialDelayMs.coerceIn(0, 10_000),
         multiplier = if (!multiplier.isFinite() || multiplier <= 0) DEFAULT_MULTIPLIER
         else multiplier.coerceIn(MIN_MULTIPLIER, MAX_MULTIPLIER),
-        maxDelayMs = maxDelayMs.coerceIn(0, 120_000),
+        maxDelayMs = maxDelayMs.coerceIn(
+            initialDelayMs.coerceIn(0, 10_000),
+            120_000,
+        ),
         retryStatusCodes = retryStatusCodes.filter { it in 400..599 }.toSet(),
         retryKeywords = retryKeywords.map { it.trim() }.filter { it.isNotEmpty() }.distinct(),
         stopKeywords = stopKeywords.map { it.trim() }.filter { it.isNotEmpty() }.distinct(),

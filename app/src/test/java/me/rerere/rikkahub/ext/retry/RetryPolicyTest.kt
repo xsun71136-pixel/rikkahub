@@ -47,6 +47,7 @@ class RetryPolicyTest {
         assertEquals(10, invalid.clamped().maxRetries)
         assertEquals(10000L, invalid.clamped().initialDelayMs)
         assertTrue(invalid.clamped().multiplier.isFinite())
+        assertTrue(defaults.copy(initialDelayMs = 9000, maxDelayMs = 100).clamped().maxDelayMs >= 9000)
         assertFalse(defaults.retryAfterPartialResponse)
     }
 }

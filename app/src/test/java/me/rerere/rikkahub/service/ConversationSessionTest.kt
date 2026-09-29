@@ -164,6 +164,22 @@ class ConversationSessionTest {
     }
 
     @Test
+    fun `field patch preserves streamed text instead of replacing with stale page`() = runBlocking {
+        val id = Uuid.random()
+        val session = ConversationSession(id, Conversation.ofId(id), this, {})
+        session.initialize { Conversation.ofId(id) }
+        val streamed = session.state.value.updateCurrentMessages(listOf(partialReply()))
+        session.updateConversation(streamed)
+        session.transformConversation { it.copy(title = "new title", workspaceCwd = "/workspace") }
+        assertEquals(streamed.messageNodes, session.state.value.messageNodes)
+        assertEquals("new title", session.state.value.title)
+        var saved = Conversation.ofId(id)
+        session.finishGeneration { saved = it }
+        assertEquals("partial reply", (saved.currentMessages.single().parts[1] as UIMessagePart.Text).text)
+        assertEquals("new title", saved.title)
+    }
+
+    @Test
     fun `late database load cannot overwrite a newer conversation update`() = runBlocking {
         val id = Uuid.random()
         val initial = Conversation.ofId(id)

@@ -508,8 +508,7 @@ private fun ChatPageContent(
                     vm.toggleMessageFavorite(node)
                 },
                 onConversationSystemPromptChange = { newPrompt ->
-                    vm.updateConversation(conversation.copy(customSystemPrompt = newPrompt))
-                    vm.saveConversationAsync()
+                    vm.updateConversation { it.copy(customSystemPrompt = newPrompt) }
                 },
             )
         }
@@ -581,9 +580,8 @@ private fun ChatFilesPickerSheet(
                     )
                 )
             },
-            onUpdateConversation = {
-                vm.updateConversation(it)
-                vm.saveConversationAsync()
+            onUpdateConversation = { update ->
+                vm.updateConversation(update)
             },
             showInjectionSheet = showInjectionSheet,
             onShowInjectionSheetChange = { showInjectionSheet = it },

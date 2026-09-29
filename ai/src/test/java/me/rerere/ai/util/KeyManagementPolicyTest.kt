@@ -103,6 +103,16 @@ class KeyManagementPolicyTest {
             assertFalse(KeyRotationPolicy.isKeyLevelError(ProviderHttpException(503, "match")))
         } finally { KeyRotationPolicy.configure(KeyManagementPolicy()) }
     }
+    @Test fun ordinaryProbeErrorsDoNotDisableKeysButInvalidProbeDoes() {
+        try {
+            KeyRotationPolicy.configure(KeyManagementPolicy())
+            assertFalse(KeyRotationPolicy.isKeyLevelError(ProviderHttpException(403, "model not permitted")))
+            assertTrue(KeyRotationPolicy.isKeyLevelError(ProviderHttpException(401, "invalid api key")))
+            assertTrue(KeyRotationPolicy.isKeyLevelError(ProviderHttpException(429, "rate limited")))
+            assertFalse(KeyRotationPolicy.isKeyLevelError(ProviderHttpException(503, "upstream unavailable")))
+        } finally { KeyRotationPolicy.configure(KeyManagementPolicy()) }
+    }
+
     @Test fun customServerGuardAndOffSwitch() {
         try {
             val p = KeyManagementPolicy(customRules = listOf(CustomKeyRule(statusCodes = setOf(403))))

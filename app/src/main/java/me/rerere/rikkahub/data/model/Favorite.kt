@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.ext.resilience.safeCurrentMessage
 import kotlin.uuid.Uuid
 
 @Serializable
@@ -58,5 +59,5 @@ fun UIMessage.buildFavoritePreview(maxLength: Int = 160): String {
 }
 
 fun MessageNode.buildFavoritePreview(maxLength: Int = 160): String {
-    return currentMessage.buildFavoritePreview(maxLength)
+    return safeCurrentMessage?.buildFavoritePreview(maxLength) ?: "[Empty Message]"
 }
