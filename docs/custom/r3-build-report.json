@@ -1,0 +1,77 @@
+{
+  "source": "69d2594378440a4f49e7bc243c87732b5d33f722",
+  "run": 36505508043,
+  "artifacts": [
+    {
+      "name": "app-arm64-v8a-release.apk",
+      "path": "/workspace/RikkaHub-R3-69d25943/app-arm64-v8a-release.apk",
+      "bytes": 40403914,
+      "sha256": "dbbf5f8d100aaab3273e30fbc98d8ff7e557b976f4488c78e8a1ee97c9cb2f2a",
+      "zip": "valid",
+      "signing_block_ids": [
+        "0x7109871a",
+        "0x504b4453",
+        "0x42726577"
+      ],
+      "asset_id": 596843856
+    },
+    {
+      "name": "app-universal-release.apk",
+      "path": "/workspace/RikkaHub-R3-69d25943/app-universal-release.apk",
+      "bytes": 50324016,
+      "sha256": "710cbe9a12757f9022caca3dc28e601d25f2a23558805cb6b3ab724beedac138",
+      "zip": "valid",
+      "signing_block_ids": [
+        "0x7109871a",
+        "0x504b4453",
+        "0x42726577"
+      ],
+      "asset_id": 596843855
+    },
+    {
+      "name": "app-x86_64-release.apk",
+      "path": "/workspace/RikkaHub-R3-69d25943/app-x86_64-release.apk",
+      "bytes": 41070404,
+      "sha256": "53f948e6cdc1830b756946d299d9aa8785789de75caaa52285343a6b0546c6f8",
+      "zip": "valid",
+      "signing_block_ids": [
+        "0x7109871a",
+        "0x504b4453",
+        "0x42726577"
+      ],
+      "asset_id": 596843854
+    }
+  ],
+  "signature_verification": [
+    {
+      "apk": "app-arm64-v8a-release.apk",
+      "v2_signature": "Verified OK",
+      "content_digest": "verified",
+      "signer_certificate_sha256": "a3034d498769d47deb45826d222cbbfc633a74e00caecab4f8abb32b2812cd33",
+      "signature_algorithm": "RSA PKCS1 v1.5 SHA256 (0x0103)"
+    },
+    {
+      "apk": "app-universal-release.apk",
+      "v2_signature": "Verified OK",
+      "content_digest": "verified",
+      "signer_certificate_sha256": "a3034d498769d47deb45826d222cbbfc633a74e00caecab4f8abb32b2812cd33",
+      "signature_algorithm": "RSA PKCS1 v1.5 SHA256 (0x0103)"
+    },
+    {
+      "apk": "app-x86_64-release.apk",
+      "v2_signature": "Verified OK",
+      "content_digest": "verified",
+      "signer_certificate_sha256": "a3034d498769d47deb45826d222cbbfc633a74e00caecab4f8abb32b2812cd33",
+      "signature_algorithm": "RSA PKCS1 v1.5 SHA256 (0x0103)"
+    }
+  ],
+  "checks": {
+    "static": 441,
+    "static_failures": 0,
+    "selected_ai_tests": 23,
+    "cloud_test_step": "success",
+    "assembleRelease": "success",
+    "release_publish": "success",
+    "device_ui_tested": false
+  }
+}
