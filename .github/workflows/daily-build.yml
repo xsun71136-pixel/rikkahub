@@ -90,6 +90,13 @@ jobs:
           # an absent/malformed secret must not make the entire release build fail.
           if printf '%s' "$GOOGLE_SERVICES_JSON" | jq -e . >/dev/null 2>&1; then
             printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+            # The app has a debug applicationIdSuffix. Ensure a valid production
+            # Firebase secret also supports :app:testDebugUnitTest.
+            if ! jq -e '.client[]? | select(.client_info.android_client_info.package_name == "me.rerere.rikkahub.debug")' app/google-services.json >/dev/null; then
+              jq '.client += [{"client_info":{"mobilesdk_app_id":"1:000000000000:android:0000000000000001","android_client_info":{"package_name":"me.rerere.rikkahub.debug"}},"api_key":[{"current_key":"AIzaSyDUMMY_RIKKAHUB_BUILD_ONLY_KEY"}] }]' app/google-services.json > app/google-services.json.tmp
+              mv app/google-services.json.tmp app/google-services.json
+              echo "Added build-only debug Firebase client to supplied configuration"
+            fi
           else
             cat > app/google-services.json <<'JSON'
           {
@@ -104,6 +111,19 @@ jobs:
                   "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
                   "android_client_info": {
                     "package_name": "me.rerere.rikkahub"
+                  }
+                },
+                "api_key": [
+                  {
+                    "current_key": "AIzaSyDUMMY_RIKKAHUB_BUILD_ONLY_KEY"
+                  }
+                ]
+              },
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000001",
+                  "android_client_info": {
+                    "package_name": "me.rerere.rikkahub.debug"
                   }
                 },
                 "api_key": [
