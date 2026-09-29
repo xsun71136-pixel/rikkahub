@@ -1,14 +1,14 @@
 {
   "base": "00c8d53a5c74554c92848cf821d551a17f576995",
-  "changed_files": 48,
-  "kotlin_files": 40,
+  "changed_files": 51,
+  "kotlin_files": 42,
   "xml_files": 24,
-  "new_strings": 160,
-  "checks": 385,
+  "new_strings": 195,
+  "checks": 441,
   "failures": [],
   "parser": {
     "available": true,
-    "files": 40,
+    "files": 42,
     "baseline_limitations": [
       {
         "file": "ai/src/main/java/me/rerere/ai/provider/ProviderSetting.kt",

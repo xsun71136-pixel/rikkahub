@@ -1,6 +1,9 @@
 package me.rerere.rikkahub.ext.keys
 
 import android.os.SystemClock
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -25,6 +28,10 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.util.*
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.View
+import me.rerere.hugeicons.stroke.MoreVertical
+import me.rerere.hugeicons.stroke.Search01
+import me.rerere.hugeicons.stroke.Connect
+import androidx.compose.ui.text.style.TextOverflow
 import me.rerere.hugeicons.stroke.ViewOff
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ext.ui.*
@@ -66,6 +73,10 @@ fun ProviderKeyManagerSheet(provider: ProviderSetting, onDismissRequest: () -> U
     var showImportDialog by remember { mutableStateOf(false) }
     var bulk by remember { mutableStateOf("") }
     var notice by remember { mutableStateOf("") }
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
+    var filterOpen by remember { mutableStateOf(false) }
+    var helpOpen by remember { mutableStateOf(false) }
     val labels = listOf(R.string.polish_all, R.string.polish_ready, R.string.polish_disabled, R.string.polish_suspended, R.string.polish_cooldown)
     val filtered = keys.filter { (filter == 0 || category(it) == filter) &&
         (query.isBlank() || it.alias.contains(query.trim(), true) || it.value.contains(query.trim(), true)) }
@@ -102,95 +113,106 @@ fun ProviderKeyManagerSheet(provider: ProviderSetting, onDismissRequest: () -> U
             }
         }
     }
-    PolicyScreen(stringResource(R.string.setting_provider_page_multi_key_manager),
-        stringResource(R.string.polish_keys_intro, provider.name), onDismissRequest) {
-        LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    CompactKeySheet(stringResource(R.string.setting_provider_page_multi_key_manager),
+        stringResource(R.string.setting_provider_page_multi_key_summary, keys.count { category(it) == 1 }, keys.size), onDismissRequest) {
+        LazyColumn(contentPadding = PaddingValues(bottom = 4.dp)) {
             item {
-                PolicyCard(stringResource(R.string.polish_pool_status)) {
-                    Text(stringResource(R.string.setting_provider_page_multi_key_summary, keys.count { category(it) == 1 }, keys.size), style = MaterialTheme.typography.headlineSmall)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        labels.forEachIndexed { index, label ->
-                            val count = if (index == 0) keys.size else keys.count { category(it) == index }
-                            FilterChip(selected = filter == index, onClick = { filter = index }, label = { Text("${stringResource(label)} $count") })
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    ProviderKeyStrategy.entries.forEachIndexed { index, value ->
+                        SegmentedButton(selected = provider.getProviderKeyStrategy() == value,
+                            onClick = { onProviderChange(provider.copyWithApiKeyConfig(keyStrategy = value)) },
+                            shape = SegmentedButtonDefaults.itemShape(index, 2)) {
+                            Text(stringResource(if (value == ProviderKeyStrategy.RANDOM) R.string.setting_provider_page_multi_key_strategy_random else R.string.setting_provider_page_multi_key_strategy_round_robin))
                         }
                     }
-                    if (keys.isNotEmpty() && keys.none { category(it) == 1 }) PolicyHint(stringResource(R.string.polish_no_ready), true)
-                    if (!policy.enabled) PolicyHint(stringResource(R.string.polish_health_ignored))
                 }
-            }
-            item {
-                PolicyCard(stringResource(R.string.polish_rotation)) {
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        ProviderKeyStrategy.entries.forEachIndexed { index, value ->
-                            SegmentedButton(selected = provider.getProviderKeyStrategy() == value,
-                                onClick = { onProviderChange(provider.copyWithApiKeyConfig(keyStrategy = value)) },
-                                shape = SegmentedButtonDefaults.itemShape(index, 2)) {
-                                Text(stringResource(if (value == ProviderKeyStrategy.RANDOM) R.string.setting_provider_page_multi_key_strategy_random else R.string.setting_provider_page_multi_key_strategy_round_robin))
-                            }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { editingKey = ProviderApiKey() }) { Text(stringResource(R.string.setting_provider_page_multi_key_add)) }
+                    TextButton(onClick = { showImportDialog = true }) { Text(stringResource(R.string.setting_provider_page_multi_key_import)) }
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = {
+                        searchOpen = !searchOpen
+                        if (!searchOpen) { query = ""; filter = 0 }
+                    }) { Icon(HugeIcons.Search01, stringResource(R.string.polish_search_keys)) }
+                    Box {
+                        IconButton(onClick = { menuOpen = true }) { Icon(HugeIcons.MoreVertical, stringResource(R.string.key3_more)) }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.polish_enable_all)) }, onClick = { bulk = "enable"; menuOpen = false })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.polish_disable_all)) }, onClick = { bulk = "disable"; menuOpen = false })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.setting_provider_page_multi_key_restore_all)) }, onClick = { bulk = "restore"; menuOpen = false })
+                            HorizontalDivider()
+                            DropdownMenuItem(text = { Text(stringResource(R.string.key3_help)) }, onClick = { helpOpen = true; menuOpen = false })
                         }
                     }
-                    PolicyHint(stringResource(if (provider.getProviderKeyStrategy() == ProviderKeyStrategy.RANDOM) R.string.polish_random_desc else R.string.polish_round_desc))
                 }
-            }
-            item {
-                OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true,
-                    label = { Text(stringResource(R.string.polish_search_keys)) }, modifier = Modifier.fillMaxWidth(),
-                    trailingIcon = { if (query.isNotEmpty()) TextButton(onClick = { query = "" }) { Text(stringResource(R.string.polish_clear)) } })
-            }
-            item {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { editingKey = ProviderApiKey() }) { Text(stringResource(R.string.setting_provider_page_multi_key_add)) }
-                    FilledTonalButton(onClick = { showImportDialog = true }) { Text(stringResource(R.string.setting_provider_page_multi_key_import)) }
+                if (searchOpen) Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true,
+                        label = { Text(stringResource(R.string.polish_search_keys)) }, modifier = Modifier.weight(1f))
+                    Box {
+                        TextButton(onClick = { filterOpen = true }) { Text(stringResource(labels[filter])) }
+                        DropdownMenu(expanded = filterOpen, onDismissRequest = { filterOpen = false }) {
+                            labels.forEachIndexed { index, label -> DropdownMenuItem(text = { Text(stringResource(label)) },
+                                onClick = { filter = index; filterOpen = false }) }
+                        }
+                    }
                 }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = { bulk = "enable" }, enabled = keys.any { !it.enabled }) { Text(stringResource(R.string.polish_enable_all)) }
-                    TextButton(onClick = { bulk = "disable" }, enabled = keys.any { it.enabled }) { Text(stringResource(R.string.polish_disable_all)) }
-                    TextButton(onClick = { bulk = "restore" }, enabled = health[providerId].orEmpty().isNotEmpty()) { Text(stringResource(R.string.setting_provider_page_multi_key_restore_all)) }
-                }
-                if (notice.isNotEmpty()) PolicyHint(notice)
-                PolicyHint(stringResource(R.string.polish_test_cost))
-                if (testModel == null) PolicyHint(stringResource(R.string.setting_provider_page_multi_key_test_needs_model), true)
+                if (notice.isNotEmpty()) Text(notice, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+                if (!policy.enabled) Text(stringResource(R.string.key3_policy_off), Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+                HorizontalDivider(Modifier.padding(top = 4.dp))
             }
             if (filtered.isEmpty()) item {
-                PolicyCard(stringResource(if (keys.isEmpty()) R.string.polish_empty_pool else R.string.polish_no_matches)) {
-                    PolicyHint(stringResource(if (keys.isEmpty()) R.string.setting_provider_page_multi_key_import_desc else R.string.polish_search_hint))
-                }
+                Text(stringResource(if (keys.isEmpty()) R.string.polish_empty_pool else R.string.polish_no_matches),
+                    Modifier.fillMaxWidth().padding(20.dp), style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             itemsIndexed(filtered, key = { _, key -> key.id.toString() }) { _, apiKey ->
                 val index = keys.indexOfFirst { it.id == apiKey.id }
                 val rec = record(apiKey)
                 val state = category(apiKey)
                 val result = results[apiKey.value]
-                PolicyCard(apiKey.alias.ifBlank { stringResource(R.string.setting_provider_page_multi_key_default_alias, index + 1) }) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(maskProviderApiKey(apiKey.value), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
-                            Text(stringResource(labels[state]), color = if (state == 3) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                var more by remember(apiKey.id) { mutableStateOf(false) }
+                Column(Modifier.fillMaxWidth()) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+                            Text(apiKey.alias.ifBlank { stringResource(R.string.setting_provider_page_multi_key_default_alias, index + 1) },
+                                style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(maskProviderApiKey(apiKey.value), style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (state != 1) Text(stringResource(labels[state]) + if (rec != null && rec.until != Long.MAX_VALUE) " · " + formatRemaining(rec.until - now) else "",
+                                style = MaterialTheme.typography.labelSmall, color = if (state == 3) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         val suspendedByHealth = rec != null && rec.state != KeyHealthState.COOLDOWN
                         Switch(checked = apiKey.enabled && !suspendedByHealth, onCheckedChange = { enabled ->
                             if (enabled) KeyRotationPolicy.clearKeyHealth(providerId, apiKey.value)
                             updateKeys(keys.map { if (it.id == apiKey.id) it.copy(enabled = enabled) else it })
                         })
-                    }
-                    if (rec != null) {
-                        val cause = when (rec.reason) { "quota" -> R.string.polish_quota_rule; "cooldown" -> R.string.polish_rate_rule; else -> R.string.polish_invalid_rule }
-                        PolicyHint(stringResource(cause) + " · " + if (rec.until == Long.MAX_VALUE) stringResource(R.string.polish_manual_recovery) else stringResource(R.string.polish_recovers_in, formatRemaining(rec.until - now)))
-                    }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        TextButton(onClick = { runTest(apiKey) }, enabled = testModel != null && result?.running != true) {
-                            if (result?.running == true) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                            Text(stringResource(R.string.setting_provider_page_multi_key_test))
+                        IconButton(onClick = { runTest(apiKey) }, enabled = testModel != null && result?.running != true) {
+                            if (result?.running == true) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            else Icon(HugeIcons.Connect, stringResource(R.string.setting_provider_page_multi_key_test), Modifier.size(20.dp))
                         }
-                        TextButton(onClick = { editingKey = apiKey }, enabled = result?.running != true) { Text(stringResource(R.string.common_edit)) }
-                        TextButton(onClick = { deletingKey = apiKey }, enabled = result?.running != true) { Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error) }
-                        if (rec != null) TextButton(onClick = { KeyRotationPolicy.clearKeyHealth(providerId, apiKey.value) }) { Text(stringResource(R.string.polish_restore)) }
+                        Box {
+                            IconButton(onClick = { more = true }) { Icon(HugeIcons.MoreVertical, stringResource(R.string.key3_more), Modifier.size(20.dp)) }
+                            DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
+                                DropdownMenuItem(text = { Text(stringResource(R.string.common_edit)) }, enabled = result?.running != true,
+                                    onClick = { editingKey = apiKey; more = false })
+                                if (rec != null) DropdownMenuItem(text = { Text(stringResource(R.string.polish_restore)) },
+                                    onClick = { KeyRotationPolicy.clearKeyHealth(providerId, apiKey.value); more = false })
+                                DropdownMenuItem(text = { Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error) }, enabled = result?.running != true,
+                                    onClick = { deletingKey = apiKey; more = false })
+                            }
+                        }
                     }
-                    if (result != null && !result.running) PolicyHint(result.text, warning = !result.success)
+                    if (result != null && !result.running) Text(result.text, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp),
+                        style = MaterialTheme.typography.labelSmall, color = if (result.success) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                    HorizontalDivider(Modifier.padding(start = 16.dp))
                 }
             }
         }
     }
+    if (helpOpen) AlertDialog(onDismissRequest = { helpOpen = false }, title = { Text(stringResource(R.string.key3_help)) },
+        text = { Text(stringResource(R.string.polish_test_cost) + "\n\n" + stringResource(R.string.polish_bulk_desc) +
+            if (testModel == null) "\n\n" + stringResource(R.string.setting_provider_page_multi_key_test_needs_model) else "") },
+        confirmButton = { TextButton(onClick = { helpOpen = false }) { Text(stringResource(R.string.common_confirm)) } })
     editingKey?.let { initial ->
         ProviderApiKeyEditDialog(initial = initial, existingValues = keys.map { it.value }.toSet(), onDismissRequest = { editingKey = null }, onConfirm = { edited ->
             updateKeys(if (keys.any { it.id == edited.id }) keys.map { if (it.id == edited.id) edited else it } else keys + edited)
@@ -258,7 +280,7 @@ private fun ProviderApiKeyEditDialog(
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.6f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = value,
                     onValueChange = { value = it },
@@ -325,7 +347,7 @@ private fun ProviderApiKeyImportDialog(
         onDismissRequest = onDismissRequest,
         title = { Text(stringResource(R.string.setting_provider_page_multi_key_import_title)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.6f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = stringResource(R.string.setting_provider_page_multi_key_import_desc),
                     style = MaterialTheme.typography.bodySmall,

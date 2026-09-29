@@ -56,6 +56,7 @@ data class KeyHealthRecord(
     val reason: String = "",
     val updatedAt: Long = 0,
     val action: KeyFailureAction? = null,
+    val ruleId: String? = null,
 )
 
 /** 该 provider 没有立即可用的 Key（空池、禁用、停用或冷却中）。 */
@@ -163,6 +164,27 @@ object KeyHealthRegistry {
         }
     }
 
+    internal data class Decision(val verdict: KeyVerdict, val rule: KeyFailureRule, val ruleId: String? = null) {
+        val reason: String get() = if (ruleId == null) verdict.name.lowercase() else "custom"
+    }
+
+    internal fun decision(error: Throwable): Decision {
+        val neutral = Decision(KeyVerdict.NEUTRAL, KeyFailureRule(action = KeyFailureAction.IGNORE))
+        val config = policy
+        var current: Throwable? = error
+        repeat(4) {
+            if (current is kotlinx.coroutines.CancellationException || current is AllKeysSuspendedException) return neutral
+            current = current?.cause
+        }
+        val status = extractStatus(error)
+        if (!config.enabled || (status != null && status >= 500)) return neutral
+        val text = collectText(error)
+        val custom = config.customRules.firstOrNull { it.matches(status, text) }
+        if (custom != null) return Decision(KeyVerdict.NEUTRAL, custom.behavior.clamped(), custom.id)
+        val verdict = classify(error)
+        return Decision(verdict, config.rule(verdict))
+    }
+
     /** 当前有效记录；过期记录保留用于连续冷却计数，不阻止使用。 */
     @Synchronized
     fun recordOf(providerId: String, keyValue: String): KeyHealthRecord? {
@@ -181,13 +203,15 @@ object KeyHealthRegistry {
 
     /** 标记一次 Key 级失败；NEUTRAL 不做任何事。 */
     @Synchronized
-    internal fun mark(providerId: String, keyValue: String, verdict: KeyVerdict, reason: String) {
+    internal fun mark(providerId: String, keyValue: String, decision: Decision) {
         val now = System.currentTimeMillis()
         val previous = _health.value[providerId]?.get(keyValue)
-        val config = policy
-        val action = config.action(verdict)
+        val config = decision.rule
+        val verdict = decision.verdict
+        val reason = decision.reason
+        val action = config.action
         if (action == KeyFailureAction.IGNORE) return
-        val fails = if (previous != null && (previous.action == KeyFailureAction.COOLDOWN ||
+        val fails = if (previous != null && previous.ruleId == decision.ruleId && previous.reason == reason && (previous.action == KeyFailureAction.COOLDOWN ||
             (previous.action == null && previous.state == KeyHealthState.COOLDOWN))) {
             if (now - previous.updatedAt < SUSPEND_TTL_MS) (previous.fails + 1).coerceAtMost(32) else 1
         } else 1
@@ -196,13 +220,9 @@ object KeyHealthRegistry {
             verdict == KeyVerdict.QUOTA -> KeyHealthState.QUOTA
             else -> KeyHealthState.INVALID
         }
-        val until = when (action) {
-            KeyFailureAction.COOLDOWN -> now + config.cooldownDurationMs(fails)
-            KeyFailureAction.SUSPEND -> if (config.manualRecoveryOnly) Long.MAX_VALUE
-                else now + config.suspendHours * 3600_000L
-            KeyFailureAction.IGNORE -> return
-        }
-        val record = KeyHealthRecord(state, until, fails, reason, now, action)
+        val duration = config.durationMs(fails)
+        val until = if (duration == Long.MAX_VALUE) Long.MAX_VALUE else now + duration
+        val record = KeyHealthRecord(state, until, fails, reason, now, action, decision.ruleId)
         Log.i(TAG, "mark provider=$providerId state=${record.state} until=${record.until} reason=$reason")
         update { current ->
             current + (providerId to ((current[providerId] ?: emptyMap()) + (keyValue to record)))

@@ -10,6 +10,10 @@ enum class KeyFailureAction { IGNORE, COOLDOWN, SUSPEND }
 @Serializable
 data class KeyManagementPolicy(
     val enabled: Boolean = true,
+    val invalidRule: KeyFailureRule? = null,
+    val quotaRule: KeyFailureRule? = null,
+    val rateLimitRule: KeyFailureRule? = null,
+    val customRules: List<CustomKeyRule> = emptyList(),
     val invalidAction: KeyFailureAction = KeyFailureAction.SUSPEND,
     val quotaAction: KeyFailureAction = KeyFailureAction.SUSPEND,
     val rateLimitAction: KeyFailureAction = KeyFailureAction.COOLDOWN,
@@ -23,6 +27,8 @@ data class KeyManagementPolicy(
     val switchDelayMs: Long = 300,
 ) {
     fun clamped(): KeyManagementPolicy = copy(
+        invalidRule = invalidRule?.clamped(), quotaRule = quotaRule?.clamped(), rateLimitRule = rateLimitRule?.clamped(),
+        customRules = customRules.take(30).map { it.clamped() }.distinctBy { it.id },
         suspendHours = suspendHours.coerceIn(1, 720),
         cooldownSeconds = cooldownSeconds.coerceIn(1, 3600),
         maxCooldownSeconds = maxCooldownSeconds.coerceIn(cooldownSeconds.coerceIn(1, 3600), 86400),
@@ -31,12 +37,26 @@ data class KeyManagementPolicy(
         switchDelayMs = switchDelayMs.coerceIn(0, 10000),
     )
 
-    internal fun action(verdict: KeyVerdict): KeyFailureAction = if (!enabled) KeyFailureAction.IGNORE else when (verdict) {
-        KeyVerdict.INVALID -> invalidAction
-        KeyVerdict.QUOTA -> quotaAction
-        KeyVerdict.COOLDOWN -> rateLimitAction
-        KeyVerdict.NEUTRAL -> KeyFailureAction.IGNORE
+    fun ruleFor(kind: Int): KeyFailureRule {
+        val explicit = when (kind) { 0 -> invalidRule; 1 -> quotaRule; else -> rateLimitRule }
+        if (explicit != null) return explicit.clamped()
+        return KeyFailureRule(
+            action = when (kind) { 0 -> invalidAction; 1 -> quotaAction; else -> rateLimitAction },
+            suspendMinutes = suspendHours.coerceIn(1, 720) * 60,
+            manualRecoveryOnly = manualRecoveryOnly, cooldownSeconds = cooldownSeconds,
+            maxCooldownSeconds = maxCooldownSeconds, multiplier = cooldownMultiplier,
+        ).clamped()
     }
+
+    internal fun rule(verdict: KeyVerdict): KeyFailureRule = when (verdict) {
+        KeyVerdict.INVALID -> ruleFor(0)
+        KeyVerdict.QUOTA -> ruleFor(1)
+        KeyVerdict.COOLDOWN -> ruleFor(2)
+        KeyVerdict.NEUTRAL -> KeyFailureRule(action = KeyFailureAction.IGNORE)
+    }
+
+    internal fun action(verdict: KeyVerdict): KeyFailureAction =
+        if (!enabled) KeyFailureAction.IGNORE else rule(verdict).action
 
     fun cooldownDurationMs(failures: Int): Long {
         val c = clamped()

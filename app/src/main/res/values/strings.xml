@@ -1562,4 +1562,41 @@
     <string name="polish_policy_summary">Actions and recovery for invalid keys, balance and rate limits</string>
     <string name="polish_exact_value">Enter an exact value</string>
     <string name="polish_number_range">Enter a number from %1$s to %2$s</string>
+
+    <!-- R3 compact Key management -->
+    <string name="key3_more">More actions</string>
+    <string name="key3_help">Help</string>
+    <string name="key3_policy_subtitle">Tap a rule to set its action and recovery time</string>
+    <string name="key3_policy_off">Health restrictions paused; manually disabled keys stay off</string>
+    <string name="key3_suspend_manual">Suspend → restore manually</string>
+    <string name="key3_suspend_summary">Suspend → retry after %1$d min</string>
+    <string name="key3_cooldown_summary">Cooldown → first wait %1$d s</string>
+    <string name="key3_switch_summary">Up to %1$d attempts · wait %2$d ms</string>
+    <string name="key3_off">Off</string>
+    <string name="key3_custom_rules">Custom error rules</string>
+    <string name="key3_custom_count">%1$d rules · expand to manage</string>
+    <string name="key3_first_match">First match wins, before defaults. 5xx and cancellation are never penalized.</string>
+    <string name="key3_add_rule">Add rule</string>
+    <string name="key3_custom_rule">Custom rule</string>
+    <string name="key3_move_up">Move up in priority</string>
+    <string name="key3_conditions_desc">Enter status codes or keywords. When both are supplied, both must match. Example: 403 + key expired.</string>
+    <string name="key3_rule_enabled">Enable this rule</string>
+    <string name="key3_rule_name">Rule name</string>
+    <string name="key3_codes">HTTP statuses (optional, comma-separated)</string>
+    <string name="key3_codes_error">Only 400–499; 5xx remain unpenalized</string>
+    <string name="key3_words">Error keywords (optional, one per line)</string>
+    <string name="key3_condition_required">Enter at least one status code or keyword</string>
+    <string name="key3_action">When matched</string>
+    <string name="key3_suspend_minutes">Allow retries after (minutes)</string>
+    <string name="key3_cooldown_seconds">First cooldown (seconds)</string>
+    <string name="key3_advanced_cooldown">Wait on repeated failures</string>
+    <string name="key3_cooldown_explain">Multiplier 1 means fixed waits; larger values increase waits up to the cap.</string>
+    <string name="key3_apply_draft">Confirm returns to the list. Save changes to apply.</string>
+    <string name="key3_help_policy">Defaults: invalid keys and insufficient balance suspend for 24 hours; rate limits initially cool down for 1 minute.\n\nEach category has its own timing. Changes affect future failures, not existing expiry times.\n\nTurning management off temporarily ignores health records. Re-enabling may restore old restrictions. Manually disabled keys never turn on automatically.\n\nCustom rules use the first match. Any item in a group may match; when both status and keyword groups are filled, both must match. Ordinary 403 is neutral unless explicitly matched by a custom rule. 5xx and cancellation are always neutral.\n\nSave to apply drafts; clearing health restrictions is immediate after confirmation.</string>
+    <string name="key3_suspend_time">Suspend → retry after %1$s</string>
+    <string name="key3_cooldown_time">Cooldown → first wait %1$s</string>
+    <string name="key3_hours">%1$d h</string>
+    <string name="key3_minutes">%1$d min</string>
+    <string name="key3_seconds">%1$d s</string>
+    <string name="key3_name_hint">Required name, up to 80 characters</string>
 </resources>

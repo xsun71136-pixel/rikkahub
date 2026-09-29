@@ -103,7 +103,7 @@ checks_by_name = {
     'service accounts bypass pool': 'provider.vertexAI && provider.useServiceAccount' in keys,
     'health persistence atomic': 'AtomicFile' in health and 'file.finishWrite(output)' in health and 'file.failWrite(output)' in health,
     'health modifications serialized': '@Synchronized\n    internal fun mark' in health,
-    'health reason is category not credentials': 'verdict.name.lowercase()' in keys,
+    'health reason is category not credentials': 'verdict.name.lowercase()' in health and 'else "custom"' in health,
     '5xx does not suspend a key': 'status != null && status >= 500 -> KeyVerdict.NEUTRAL' in health,
     'status preserved': 'typed is ProviderHttpException' in health and 'typed is ProviderHttpException' in policy,
     'HTTP before IOException': policy.index('if (status != null) return') < policy.index('if (isNetworkTransportError(error))'),
@@ -129,7 +129,7 @@ store = read(app + 'data/datastore/PreferencesStore.kt')
 checks_by_name.update({
     'policy serialized with compatible defaults': '@Serializable' in key_policy and 'val enabled: Boolean = true' in key_policy and 'keyManagement:' in store,
     'policy clamps invalid numeric input': 'cooldownMultiplier.isFinite()' in key_policy and 'maxSwitches.coerceIn(0, 20)' in key_policy,
-    'classification separate from action': 'config.action(verdict)' in health and 'action == KeyFailureAction.IGNORE' in health,
+    'classification separate from action': 'config.rule(verdict)' in health and 'val config = decision.rule' in health and 'action == KeyFailureAction.IGNORE' in health,
     'policy applies without opening UI': store.count('KeyRotationPolicy.configure(') == 2,
     'disabled policy ignores old health records': 'if (!policy.enabled) return null' in health,
     'manual recovery durable': 'Long.MAX_VALUE' in health,
@@ -148,6 +148,24 @@ checks_by_name.update({
     'settings drafts survive rotation': 'rememberSaveable' in retry_ui and 'rememberSaveable' in policy_ui,
     'discard prompts in both settings': 'polish_discard_desc' in retry_ui and 'polish_discard_desc' in policy_ui,
     'network key management entry': 'showKeyPolicy = true' in read(app + 'ui/pages/setting/SettingPreferencesNetworkPage.kt'),
+})
+rule_source = read(ai + 'util/KeyFailureRule.kt')
+compact_ui = read(app + 'ext/keys/CompactKeySheet.kt')
+checks_by_name.update({
+    'key UIs are compact sheets not full screens': 'PolicyScreen(' not in key_ui and 'PolicyScreen(' not in policy_ui and 'CompactKeySheet(' in key_ui and 'CompactKeySheet(' in policy_ui,
+    'compact viewport wraps and bounds': 'weight(1f, fill = false)' in compact_ui and '0.82f' in compact_ui,
+    'no key dashboard card': 'PolicyCard(' not in key_ui and 'polish_pool_status' not in key_ui,
+    'key advanced operations hidden': 'DropdownMenu(' in key_ui and 'if (searchOpen)' in key_ui,
+    'policy independent rules': all(x in key_policy for x in ['invalidRule:', 'quotaRule:', 'rateLimitRule:', 'ruleFor(kind: Int)']),
+    'policy custom conditions bounded': 'customRules.take(30)' in key_policy and 'it in 400..499' in rule_source,
+    'custom conditions fail closed': 'enabled = enabled && statusCodes.all' in rule_source and 'c.statusCodes.isEmpty() && c.keywords.isEmpty()' in rule_source,
+    'custom rules first match': 'customRules.firstOrNull' in health,
+    'cancellation before custom rule': health.index('current is kotlinx.coroutines.CancellationException') < health.index('customRules.firstOrNull'),
+    'custom rules respect 5xx safety': 'status != null && status >= 500' in health.split('internal fun decision')[1].split('customRules.firstOrNull')[0],
+    'custom condition AND semantics': '(c.statusCodes.isEmpty() || status in c.statusCodes) &&' in rule_source,
+    'rule editor no sliders': 'PolicySlider(' not in policy_ui and 'KeyNumberField' in policy_ui,
+    'advanced policy collapsed': 'if (customExpanded)' in policy_ui and 'if (advanced || !cooldownValid)' in policy_ui,
+    'old per-key marks remain compatible': 'val ruleId: String? = null' in health,
 })
 for name, condition in checks_by_name.items(): check(name, condition)
 for f in ['claude/ClaudeProvider.kt', 'google/GoogleProvider.kt', 'openai/ChatCompletionsAPI.kt', 'openai/ResponseAPI.kt']:

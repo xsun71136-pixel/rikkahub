@@ -1563,4 +1563,41 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
     <string name="polish_policy_summary">无效、额度不足、限流的处理方式与恢复策略</string>
     <string name="polish_exact_value">精确输入数值</string>
     <string name="polish_number_range">请输入 %1$s～%2$s 范围内的数值</string>
+
+    <!-- R3 compact Key management -->
+    <string name="key3_more">更多操作</string>
+    <string name="key3_help">使用说明</string>
+    <string name="key3_policy_subtitle">点一条规则，设置处理方式与恢复时间</string>
+    <string name="key3_policy_off">健康限制已暂停；人工关闭的 Key 仍不可用</string>
+    <string name="key3_suspend_manual">停用 → 手动恢复</string>
+    <string name="key3_suspend_summary">停用 → %1$d 分钟后再试</string>
+    <string name="key3_cooldown_summary">冷却 → 首次 %1$d 秒</string>
+    <string name="key3_switch_summary">最多 %1$d 次 · 等待 %2$d ms</string>
+    <string name="key3_off">已关闭</string>
+    <string name="key3_custom_rules">自定义错误规则</string>
+    <string name="key3_custom_count">%1$d 条 · 展开管理</string>
+    <string name="key3_first_match">按顺序第一条匹配生效，优先于默认规则；5xx、取消始终不处罚。</string>
+    <string name="key3_add_rule">添加规则</string>
+    <string name="key3_custom_rule">自定义规则</string>
+    <string name="key3_move_up">上移，提高优先级</string>
+    <string name="key3_conditions_desc">填写状态码或关键词；两项都填时须同时符合。例：403 +「key expired」。</string>
+    <string name="key3_rule_enabled">启用这条规则</string>
+    <string name="key3_rule_name">规则名称</string>
+    <string name="key3_codes">HTTP 状态码（可选，逗号分隔）</string>
+    <string name="key3_codes_error">仅支持 400～499；5xx 保持不处罚</string>
+    <string name="key3_words">错误包含词（可选，每行一个）</string>
+    <string name="key3_condition_required">至少填写一个状态码或关键词</string>
+    <string name="key3_action">命中后</string>
+    <string name="key3_suspend_minutes">多久后允许再试（分钟）</string>
+    <string name="key3_cooldown_seconds">首次冷却（秒）</string>
+    <string name="key3_advanced_cooldown">重复失败怎么等待？</string>
+    <string name="key3_cooldown_explain">倍率 1 = 每次固定等待；大于 1 = 递增，最多等到上限。</string>
+    <string name="key3_apply_draft">确定后回到列表；点击「保存更改」才生效。</string>
+    <string name="key3_help_policy">默认：无效 Key、额度不足停用 24 小时；限流先冷却 1 分钟。\n\n三类可单独设置，不再共用时长。修改只影响之后的失败，已有记录保持原到期时间。\n\n总开关关闭时暂时忽略健康记录；重新开启后旧限制仍可能恢复。人工关闭的 Key 永远不会自动打开。\n\n自定义规则按第一条匹配生效：同组条件任一命中；状态码和关键词两组都填时须同时命中。普通 403 默认不处罚；显式自定义可处理它。5xx 与取消始终不处罚。\n\n配置草稿只有保存后生效；「清除健康限制」是确认后立即执行。</string>
+    <string name="key3_suspend_time">停用 → %1$s后再试</string>
+    <string name="key3_cooldown_time">冷却 → 首次%1$s</string>
+    <string name="key3_hours">%1$d 小时</string>
+    <string name="key3_minutes">%1$d 分钟</string>
+    <string name="key3_seconds">%1$d 秒</string>
+    <string name="key3_name_hint">名称必填，最多 80 字符</string>
 </resources>

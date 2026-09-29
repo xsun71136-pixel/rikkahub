@@ -49,15 +49,14 @@ object KeyRotationPolicy {
 
     fun reportFailure(providerId: String, keyValue: String, error: Throwable) {
         if (error is kotlinx.coroutines.CancellationException) return
-        val verdict = KeyHealthRegistry.classify(error)
-        if (verdict == KeyVerdict.NEUTRAL) return
-        // Persist only a category, not an upstream response that may contain credentials.
-        KeyHealthRegistry.mark(providerId, keyValue, verdict, verdict.name.lowercase())
+        val decision = KeyHealthRegistry.decision(error)
+        if (decision.rule.action == KeyFailureAction.IGNORE) return
+        // Persist a category only, never the upstream text or matching keywords.
+        KeyHealthRegistry.mark(providerId, keyValue, decision)
     }
 
     fun isKeyLevelError(error: Throwable): Boolean =
-        error !is kotlinx.coroutines.CancellationException &&
-            policy.action(KeyHealthRegistry.classify(error)) != KeyFailureAction.IGNORE
+        KeyHealthRegistry.decision(error).rule.action != KeyFailureAction.IGNORE
 
     fun hasReadyAlternative(provider: ProviderSetting): Boolean = manages(provider) &&
         KeyHealthRegistry.filterReady(provider.id.toString(), provider.activeApiKeyValuesForRequest()).isNotEmpty()

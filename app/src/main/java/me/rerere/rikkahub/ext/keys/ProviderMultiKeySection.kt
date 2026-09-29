@@ -66,7 +66,6 @@ fun ProviderMultiKeySection(
     }
     val totalCount = provider.getProviderApiKeys().normalizedProviderApiKeys().size
 
-    me.rerere.rikkahub.ext.ui.PolicyCard(stringResource(R.string.setting_provider_page_multi_key_mode)) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -110,7 +109,6 @@ fun ProviderMultiKeySection(
         }
     }
 
-    }
     if (showManager) {
         ProviderKeyManagerSheet(
             provider = provider,
