@@ -1413,7 +1413,7 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="auto_retry_jitter_desc">每次延迟随机浮动 ±20%，避免同时重试造成拥塞</string>
   <string name="auto_retry_keyword_hint">输入关键词</string>
   <string name="auto_retry_keywords">重试关键词</string>
-  <string name="auto_retry_master_switch_desc">控制常规网络/服务端错误重试，多 Key 故障切换独立生效；点击本行可配置高级选项。</string>
+  <string name="auto_retry_master_switch_desc">控制常规网络/服务端错误重试（当前最多 %1$d 次请求），多 Key 故障切换独立生效；点击本行可配置高级选项。</string>
   <string name="auto_retry_max_delay">最大延迟上限</string>
   <string name="auto_retry_max_retries">最大重试次数</string>
   <string name="auto_retry_multiplier">退避倍率</string>

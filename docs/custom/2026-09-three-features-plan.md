@@ -2063,3 +2063,29 @@ https://github.com/xsun71136-pixel/rikkahub/releases/tag/nightly
 ```
 
 以后修改这三个功能时，先只看本文件，再检查当前远端 HEAD 是否已经比本文记录更新；如果更新，先把本文和新版源码对齐，再开始改代码。
+
+## 2026-10 UI refinement addendum (2.5.6 follow-up)
+
+This addendum supersedes only the presentation/layout portions of the previous three-feature plan. It does **not** add new retry rules, key states, provider operations, or background behavior.
+
+### Shared UI constraints
+- Keep the existing compact settings entry points and existing Material 3 components; no dashboard, no permanent filter-chip rows, no full-screen management page, and no extra batch actions.
+- Advanced configuration remains progressive disclosure: the outer preference row shows the real current summary, while detailed values remain inside the existing editor.
+- Use one bounded modal bottom sheet, a quiet header, a scrollable body, and a fixed compact footer. Avoid nested oversized rounded cards.
+- All displayed counts and summaries must be derived from the current draft/configuration; no hard-coded “3 times”, “enabled”, or stale key count text.
+- Provider key manager keeps the existing add/import/edit/test/restore/delete behavior and explicit-paste protection. This pass changes grouping, spacing, hierarchy, and status readability only.
+
+### 1. Network automatic retry
+- The outer network preference summary reports the actual maximum request count (`maxRetries + 1`) and explicitly separates ordinary retry from independent multi-key failover.
+- The advanced editor uses a bounded bottom sheet with a compact header/footer, two existing tabs (Basics/Rules), a single overview block, compact drill-in rows, and existing dialogs for exact edits.
+- Existing safety default remains unchanged: partial-response replay stays opt-in and protected by confirmation.
+
+### 2. Preferences KEY management
+- Keep the global policy editor as a compact bottom sheet.
+- Group the existing controls into: policy status, error actions, failover, and custom rules. Add no new controls.
+- Keep custom rules collapsed by default and preserve the existing edit/delete/reorder dialogs.
+
+### 3. Provider key manager
+- Keep the existing manager sheet and all operations.
+- Replace the visually flat control strip with a small pool-status summary, a compact strategy row, and a separate action/search row.
+- Keep each key as a dense list row: alias, masked value, health state/countdown, enable switch, test, and overflow actions. No large key cards and no new actions.

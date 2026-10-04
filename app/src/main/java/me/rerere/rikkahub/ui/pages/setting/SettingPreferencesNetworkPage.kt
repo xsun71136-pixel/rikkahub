@@ -307,7 +307,7 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
                             Text(stringResource(R.string.setting_page_preferences_network_auto_retry))
                         },
                         supportingContent = {
-                            Text(stringResource(R.string.setting_page_preferences_network_auto_retry_desc))
+                            Text(stringResource(R.string.auto_retry_master_switch_desc, settings.networkSetting.autoRetry.maxRetries + 1))
                         },
                         // [自定义修改] 点击/长按整行打开高级重试配置（长按为用户约定的快捷入口）
                         modifier = Modifier.combinedClickable(

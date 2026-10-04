@@ -78,49 +78,44 @@ fun KeyPolicySettingsScreen(visible: Boolean, onDismissRequest: () -> Unit, sett
         }) {
         LazyColumn {
             item {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.polish_policy_enabled), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                CompactSectionLabel(stringResource(R.string.polish_auto_protection))
+                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(stringResource(R.string.polish_policy_enabled), style = MaterialTheme.typography.bodyLarge)
+                        Text(stringResource(R.string.polish_policy_scope), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     Switch(checked = config.enabled, onCheckedChange = { change(config.copy(enabled = it)) })
                 }
-                if (!config.enabled) Text(stringResource(R.string.key3_policy_off), Modifier.padding(horizontal = 16.dp),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                HorizontalDivider()
+                if (!config.enabled) Text(stringResource(R.string.key3_policy_off), Modifier.padding(horizontal = 20.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            item { CompactSectionLabel(stringResource(R.string.polish_error_actions)) }
             items(3) { index ->
                 CompactSettingRow(stringResource(titles[index]), keyRuleSummary(config.ruleFor(index))) { editing = index }
             }
             item {
-                HorizontalDivider()
-                CompactSettingRow(stringResource(R.string.polish_switch_policy),
-                    if (config.autoSwitch) stringResource(R.string.key3_switch_summary, config.maxSwitches, config.switchDelayMs) else stringResource(R.string.key3_off)) { showSwitch = true }
+                CompactSectionLabel(stringResource(R.string.polish_rotation))
+                CompactSettingRow(stringResource(R.string.polish_switch_policy), if (config.autoSwitch) stringResource(R.string.key3_switch_summary, config.maxSwitches, config.switchDelayMs) else stringResource(R.string.key3_off)) { showSwitch = true }
+                CompactSectionLabel(stringResource(R.string.polish_custom))
                 CompactSettingRow(stringResource(R.string.key3_custom_rules), stringResource(R.string.key3_custom_count, config.customRules.size)) { customExpanded = !customExpanded }
             }
             if (customExpanded) {
                 item {
-                    Text(stringResource(R.string.key3_first_match), Modifier.padding(horizontal = 16.dp),
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.key3_first_match), Modifier.padding(horizontal = 20.dp, vertical = 6.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 itemsIndexed(config.customRules, key = { _, rule -> rule.id }) { index, rule ->
                     var more by remember(rule.id) { mutableStateOf(false) }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.weight(1f)) {
-                            CompactSettingRow(rule.name, if (rule.enabled) keyRuleSummary(rule.behavior) else stringResource(R.string.key3_off)) { customEdit = rule }
-                        }
+                        Box(Modifier.weight(1f)) { CompactSettingRow(rule.name, if (rule.enabled) keyRuleSummary(rule.behavior) else stringResource(R.string.key3_off)) { customEdit = rule } }
                         Box {
                             IconButton(onClick = { more = true }) { Icon(HugeIcons.MoreVertical, stringResource(R.string.key3_more)) }
                             DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
-                                DropdownMenuItem(text = { Text(stringResource(R.string.key3_move_up)) }, enabled = index > 0,
-                                    onClick = { change(config.copy(customRules = config.customRules.toMutableList().apply { add(index - 1, removeAt(index)) })); more = false })
+                                DropdownMenuItem(text = { Text(stringResource(R.string.key3_move_up)) }, enabled = index > 0, onClick = { change(config.copy(customRules = config.customRules.toMutableList().apply { add(index - 1, removeAt(index)) })); more = false })
                                 DropdownMenuItem(text = { Text(stringResource(R.string.common_delete)) }, onClick = { deleting = rule; more = false })
                             }
                         }
                     }
                 }
-                item {
-                    TextButton(onClick = { customEdit = CustomKeyRule() }, enabled = config.customRules.size < 30, modifier = Modifier.padding(horizontal = 8.dp)) {
-                        Text(stringResource(R.string.key3_add_rule))
-                    }
-                }
+                item { TextButton(onClick = { customEdit = CustomKeyRule() }, enabled = config.customRules.size < 30, modifier = Modifier.padding(horizontal = 12.dp)) { Text(stringResource(R.string.key3_add_rule)) } }
             }
         }
     }

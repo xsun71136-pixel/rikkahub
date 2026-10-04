@@ -1,10 +1,10 @@
 package me.rerere.rikkahub.ext.keys
 
 import android.os.SystemClock
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.*
@@ -15,8 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
@@ -117,23 +115,29 @@ fun ProviderKeyManagerSheet(provider: ProviderSetting, onDismissRequest: () -> U
         stringResource(R.string.setting_provider_page_multi_key_summary, keys.count { category(it) == 1 }, keys.size), onDismissRequest) {
         LazyColumn(contentPadding = PaddingValues(bottom = 4.dp)) {
             item {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    ProviderKeyStrategy.entries.forEachIndexed { index, value ->
-                        SegmentedButton(selected = provider.getProviderKeyStrategy() == value,
-                            onClick = { onProviderChange(provider.copyWithApiKeyConfig(keyStrategy = value)) },
-                            shape = SegmentedButtonDefaults.itemShape(index, 2)) {
-                            Text(stringResource(if (value == ProviderKeyStrategy.RANDOM) R.string.setting_provider_page_multi_key_strategy_random else R.string.setting_provider_page_multi_key_strategy_round_robin))
+                Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.medium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.polish_pool_status), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.weight(1f))
+                            Text(stringResource(R.string.setting_provider_page_multi_key_summary, keys.count { category(it) == 1 }, keys.size), style = MaterialTheme.typography.labelMedium)
+                        }
+                        Text(if (!policy.enabled) stringResource(R.string.polish_health_ignored) else stringResource(R.string.setting_provider_page_multi_key_health_caption), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.polish_rotation), Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    SingleChoiceSegmentedButtonRow {
+                        ProviderKeyStrategy.entries.forEachIndexed { index, value ->
+                            SegmentedButton(selected = provider.getProviderKeyStrategy() == value, onClick = { onProviderChange(provider.copyWithApiKeyConfig(keyStrategy = value)) }, shape = SegmentedButtonDefaults.itemShape(index, 2)) { Text(stringResource(if (value == ProviderKeyStrategy.RANDOM) R.string.setting_provider_page_multi_key_strategy_random else R.string.setting_provider_page_multi_key_strategy_round_robin)) }
                         }
                     }
                 }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { editingKey = ProviderApiKey() }) { Text(stringResource(R.string.setting_provider_page_multi_key_add)) }
                     TextButton(onClick = { showImportDialog = true }) { Text(stringResource(R.string.setting_provider_page_multi_key_import)) }
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = {
-                        searchOpen = !searchOpen
-                        if (!searchOpen) { query = ""; filter = 0 }
-                    }) { Icon(HugeIcons.Search01, stringResource(R.string.polish_search_keys)) }
+                    IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) { query = ""; filter = 0 } }) { Icon(HugeIcons.Search01, stringResource(R.string.polish_search_keys)) }
                     Box {
                         IconButton(onClick = { menuOpen = true }) { Icon(HugeIcons.MoreVertical, stringResource(R.string.key3_more)) }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -146,18 +150,14 @@ fun ProviderKeyManagerSheet(provider: ProviderSetting, onDismissRequest: () -> U
                     }
                 }
                 if (searchOpen) Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true,
-                        label = { Text(stringResource(R.string.polish_search_keys)) }, modifier = Modifier.weight(1f))
+                    OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true, label = { Text(stringResource(R.string.polish_search_keys)) }, modifier = Modifier.weight(1f))
                     Box {
                         TextButton(onClick = { filterOpen = true }) { Text(stringResource(labels[filter])) }
-                        DropdownMenu(expanded = filterOpen, onDismissRequest = { filterOpen = false }) {
-                            labels.forEachIndexed { index, label -> DropdownMenuItem(text = { Text(stringResource(label)) },
-                                onClick = { filter = index; filterOpen = false }) }
-                        }
+                        DropdownMenu(expanded = filterOpen, onDismissRequest = { filterOpen = false }) { labels.forEachIndexed { index, label -> DropdownMenuItem(text = { Text(stringResource(label)) }, onClick = { filter = index; filterOpen = false }) } }
                     }
                 }
                 if (notice.isNotEmpty()) Text(notice, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
-                if (!policy.enabled) Text(stringResource(R.string.key3_policy_off), Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+                if (!policy.enabled) Text(stringResource(R.string.key3_policy_off), Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 HorizontalDivider(Modifier.padding(top = 4.dp))
             }
             if (filtered.isEmpty()) item {

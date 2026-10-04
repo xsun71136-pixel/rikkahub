@@ -1412,7 +1412,7 @@
   <string name="auto_retry_jitter_desc">Randomize each delay by ±20 percent to avoid retry storms</string>
   <string name="auto_retry_keyword_hint">Enter keyword</string>
   <string name="auto_retry_keywords">Retry keywords</string>
-  <string name="auto_retry_master_switch_desc">Controls ordinary network/server retries. Multi-key failover remains independent; tap this row for advanced options.</string>
+  <string name="auto_retry_master_switch_desc">Controls ordinary network/server retries (up to %1$d requests now). Multi-key failover remains independent; tap this row for advanced options.</string>
   <string name="auto_retry_max_delay">Max delay</string>
   <string name="auto_retry_max_retries">Max retries</string>
   <string name="auto_retry_multiplier">Backoff multiplier</string>

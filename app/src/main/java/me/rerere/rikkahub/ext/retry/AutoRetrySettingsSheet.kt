@@ -1,7 +1,6 @@
 package me.rerere.rikkahub.ext.retry
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.clickable
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.ArrowRight01
@@ -17,16 +16,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.ext.ui.PolicyConfirm
 import me.rerere.rikkahub.ext.ui.PolicyToggle
+import me.rerere.rikkahub.ext.keys.CompactKeySheet
 
 @Composable
 fun AutoRetrySettingsSheet(visible: Boolean, onDismissRequest: () -> Unit, settings: Settings, onUpdateSettings: (Settings) -> Unit) {
@@ -47,71 +44,60 @@ fun AutoRetrySettingsSheet(visible: Boolean, onDismissRequest: () -> Unit, setti
     var menu by remember { mutableStateOf(false) }
     val close = { if (dirty) discard = true else onDismissRequest() }
 
-    Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(max = LocalConfiguration.current.screenHeightDp.dp * .88f), shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface) {
-            Column(Modifier.safeDrawingPadding().imePadding()) {
-                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(stringResource(R.string.auto_retry_sheet_title), style = MaterialTheme.typography.titleLarge)
-                        Text(stringResource(R.string.polish_retry_intro), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+    CompactKeySheet(
+        title = stringResource(R.string.auto_retry_sheet_title),
+        subtitle = stringResource(R.string.polish_retry_intro),
+        onClose = close,
+        footer = {
+            Surface(tonalElevation = 3.dp) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box {
+                        TextButton(onClick = { menu = true }) { Text(stringResource(R.string.key3_more)) }
+                        DropdownMenu(menu, { menu = false }) {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.auto_retry_reset_all)) }, onClick = { reset = true; menu = false })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.key3_help)) }, onClick = { ruleEditor = "help"; menu = false })
+                        }
                     }
-                    IconButton(onClick = close) { Icon(HugeIcons.Cancel01, stringResource(R.string.polish_close)) }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = close) { Text(stringResource(R.string.cancel)) }
+                    Button(enabled = dirty, onClick = {
+                        onUpdateSettings(settings.copy(networkSetting = originalNetwork.copy(enableAutoRetry = enabled, autoRetry = config)))
+                        onDismissRequest()
+                    }) { Text(stringResource(if (dirty) R.string.polish_save_changes else R.string.polish_saved)) }
+                }
+            }
+        },
+    ) {
+        LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 12.dp)) {
+            item {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.setting_page_preferences_network_auto_retry), style = MaterialTheme.typography.bodyLarge)
+                        Text(if (enabled) stringResource(R.string.key3_on) else stringResource(R.string.key3_off), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(enabled, { enabled = it })
                 }
                 HorizontalDivider()
-                SecondaryTabRow(selectedTabIndex = tab) {
-                    Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.polish_basic)) })
-                    Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.polish_rules)) })
+            }
+            if (tab == 0) {
+                item {
+                    RetrySummary(config, enabled)
+                    HorizontalDivider()
                 }
-                LazyColumn(Modifier.weight(1f, fill = false), contentPadding = PaddingValues(bottom = 12.dp)) {
-                    item {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(stringResource(R.string.setting_page_preferences_network_auto_retry), style = MaterialTheme.typography.bodyLarge)
-                                Text(if (enabled) stringResource(R.string.key3_on) else stringResource(R.string.key3_off), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Switch(enabled, { enabled = it })
-                        }
-                        HorizontalDivider()
-                    }
-                    if (tab == 0) {
-                        item {
-                            RetrySummary(config, enabled)
-                            HorizontalDivider()
-                        }
-                        item {
-                            RetryPresetRow(config, onSelect = ::change)
-                            HorizontalDivider()
-                        }
-                        item {
-                            CompactRetryRow(stringResource(R.string.polish_retry_timing), retryTimingSummary(config)) { timingEditor = true }
-                            CompactRetryRow(stringResource(R.string.polish_safety), retrySafetySummary(config)) { ruleEditor = "safety" }
-                            CompactRetryRow(stringResource(R.string.auto_retry_status_codes), stringResource(R.string.retry_codes_count, config.retryStatusCodes.size)) { tab = 1 }
-                        }
-                    } else {
-                        item {
-                            CompactRetryRow(stringResource(R.string.auto_retry_status_codes), stringResource(R.string.retry_codes_count, config.retryStatusCodes.size)) { ruleEditor = "status" }
-                            CompactRetryRow(stringResource(R.string.auto_retry_keywords), stringResource(R.string.retry_keywords_count, config.retryKeywords.size)) { ruleEditor = "retry" }
-                            CompactRetryRow(stringResource(R.string.auto_retry_stop_keywords), stringResource(R.string.retry_stop_count, config.stopKeywords.size)) { ruleEditor = "stop" }
-                        }
-                    }
+                item {
+                    RetryPresetRow(config, onSelect = ::change)
+                    HorizontalDivider()
                 }
-                Surface(tonalElevation = 3.dp) {
-                    Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box {
-                            TextButton(onClick = { menu = true }) { Text(stringResource(R.string.key3_more)) }
-                            DropdownMenu(menu, { menu = false }) {
-                                DropdownMenuItem(text = { Text(stringResource(R.string.auto_retry_reset_all)) }, onClick = { reset = true; menu = false })
-                                DropdownMenuItem(text = { Text(stringResource(R.string.key3_help)) }, onClick = { ruleEditor = "help"; menu = false })
-                            }
-                        }
-                        Spacer(Modifier.weight(1f))
-                        TextButton(onClick = close) { Text(stringResource(R.string.cancel)) }
-                        Button(enabled = dirty, onClick = {
-                            onUpdateSettings(settings.copy(networkSetting = originalNetwork.copy(enableAutoRetry = enabled, autoRetry = config)))
-                            onDismissRequest()
-                        }) { Text(stringResource(if (dirty) R.string.polish_save_changes else R.string.polish_saved)) }
-                    }
+                item {
+                    CompactRetryRow(stringResource(R.string.polish_retry_timing), retryTimingSummary(config)) { timingEditor = true }
+                    CompactRetryRow(stringResource(R.string.polish_safety), retrySafetySummary(config)) { ruleEditor = "safety" }
+                    CompactRetryRow(stringResource(R.string.auto_retry_status_codes), stringResource(R.string.retry_codes_count, config.retryStatusCodes.size)) { tab = 1 }
+                }
+            } else {
+                item {
+                    CompactRetryRow(stringResource(R.string.auto_retry_status_codes), stringResource(R.string.retry_codes_count, config.retryStatusCodes.size)) { ruleEditor = "status" }
+                    CompactRetryRow(stringResource(R.string.auto_retry_keywords), stringResource(R.string.retry_keywords_count, config.retryKeywords.size)) { ruleEditor = "retry" }
+                    CompactRetryRow(stringResource(R.string.auto_retry_stop_keywords), stringResource(R.string.retry_stop_count, config.stopKeywords.size)) { ruleEditor = "stop" }
                 }
             }
         }
@@ -155,19 +141,23 @@ fun AutoRetrySettingsSheet(visible: Boolean, onDismissRequest: () -> Unit, setti
 @OptIn(ExperimentalLayoutApi::class)
 @Composable private fun RetryPresetRow(config: AutoRetryConfig, onSelect: (AutoRetryConfig) -> Unit) {
     val presets = listOf(R.string.polish_recommended to AutoRetryConfig(), R.string.polish_fast to AutoRetryConfig(maxRetries = 2, initialDelayMs = 500, maxDelayMs = 5000), R.string.polish_patient to AutoRetryConfig(maxRetries = 5, initialDelayMs = 2000, maxDelayMs = 60000))
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+    Column(Modifier.padding(horizontal = 20.dp, vertical = 10.dp)) {
         Text(stringResource(R.string.polish_quick_setup), style = MaterialTheme.typography.titleSmall)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) { presets.forEach { (label, value) -> FilterChip(selected = config == value, onClick = { onSelect(value) }, label = { Text(stringResource(label)) }) } }
     }
 }
 
 @Composable private fun CompactRetryRow(title: String, summary: String, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) { Text(title, style = MaterialTheme.typography.bodyMedium); Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        Icon(HugeIcons.ArrowRight01, null, Modifier.size(18.dp))
+    Surface(onClick = onClick, color = MaterialTheme.colorScheme.surface) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = MaterialTheme.typography.bodyMedium)
+                Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(HugeIcons.ArrowRight01, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
-
 @Composable private fun retryTimingSummary(c: AutoRetryConfig) = stringResource(R.string.retry_timing_summary, c.maxRetries, c.initialDelayMs, c.maxDelayMs, c.multiplier)
 @Composable private fun retrySafetySummary(c: AutoRetryConfig) = stringResource(if (c.retryAfterPartialResponse) R.string.retry_partial_on else R.string.retry_partial_protected)
 private fun formatRetryDuration(ms: Long): String = if (ms % 1000L == 0L) "${ms / 1000}s" else "${ms}ms"
