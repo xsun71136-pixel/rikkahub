@@ -1030,7 +1030,8 @@ class ChatService(
         val session = sessionManager.getOrCreate(conversationId)
         synchronized(session) {
             val old = session.state.value
-            val latest = session.transformConversation(update)
+            val latest = update(session.state.value)
+            session.updateConversation(latest)
             // Schedule inside the same critical section: an older update must never
             // enqueue its draft after a newer chunk. Metadata patches keep live nodes.
             draftSaver.schedule(conversationId, latest)
