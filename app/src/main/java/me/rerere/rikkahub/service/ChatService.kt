@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.service
 
+import me.rerere.rikkahub.ext.resilience.safeCurrentMessage
+
 import android.app.Application
 import android.util.Log
 import androidx.core.net.toUri
@@ -176,6 +178,18 @@ class ChatService(
     // workspace 系统提示注入 (依赖 workspaceRepository, 故在类内构造)
     private val workspaceReminderTransformer = WorkspaceReminderTransformer(workspaceRepository)
 
+    // [自定义修改] 流式草稿落库器：生成期间约 2.5s 节流保存；磁盘故障或强杀仍可能丢增量
+    // （docs/custom/2026-09-three-features-plan.md）
+    private val draftSaver = me.rerere.rikkahub.ext.resilience.StreamDraftSaver(appScope, conversationRepo)
+
+    /** 崩溃兜底：由 CrashHandler 在进程崩溃前同步调用，尽最大努力保住已生成内容。 */
+    fun flushAllDraftsBlocking(timeoutMs: Long = 1_500L) = draftSaver.flushAllBlocking(timeoutMs)
+
+    /** [自定义修改] 应用退到后台时尽力落盘；不承诺强杀下零丢失。 */
+    fun flushAllDrafts() {
+        appScope.launch(Dispatchers.IO) { draftSaver.flushAll() }
+    }
+
     private val sessionManager = ConversationSessionManager(
         scope = appScope,
         createInitialConversation = { id ->
@@ -212,7 +226,11 @@ class ChatService(
     private val _generationDoneFlow = MutableSharedFlow<Uuid>()
     val generationDoneFlow: SharedFlow<Uuid> = _generationDoneFlow.asSharedFlow()
 
-    fun cleanup() = runCatching { sessionManager.cleanup() }
+    fun cleanup() = runCatching {
+        // [自定义修改] 应用退出清理前先把在途草稿写入 DB
+        draftSaver.flushAllBlocking(800)
+        sessionManager.cleanup()
+    }
 
     private fun onSessionGenerationFinished(session: ConversationSession, cause: Throwable?) {
         if (cause != null) session.messageQueue.pause()
@@ -230,6 +248,8 @@ class ChatService(
     }
 
     fun removeConversationReference(conversationId: Uuid) {
+        // Navigation should flush even when the Activity itself remains foreground.
+        appScope.launch(Dispatchers.IO) { draftSaver.flushAll() }
         sessionManager.release(conversationId)
     }
 
@@ -528,7 +548,7 @@ class ChatService(
         val previousJob = session.getJob()
 
         val hasOtherPendingTools = session.state.value.messageNodes.any { node ->
-            node.currentMessage.parts.any { part ->
+            node.safeCurrentMessage?.parts.orEmpty().any { part ->
                 part is UIMessagePart.Tool && part.isPending && part.toolCallId != toolCallId
             }
         }
@@ -573,7 +593,7 @@ class ChatService(
 
                     // Check if there are still pending tools
                     val hasPendingTools = updatedNodes.any { node ->
-                        node.currentMessage.parts.any { part ->
+                        node.safeCurrentMessage?.parts.orEmpty().any { part ->
                             part is UIMessagePart.Tool && part.isPending
                         }
                     }
@@ -705,9 +725,7 @@ class ChatService(
             }.collect { chunk ->
                 when (chunk) {
                     is GenerationChunk.Messages -> {
-                        val updatedConversation = getConversationFlow(conversationId).value
-                            .updateCurrentMessages(chunk.messages)
-                        updateConversation(conversationId, updatedConversation)
+                        updateConversationState(conversationId) { it.updateCurrentMessages(chunk.messages) }
 
                         // 通知等边缘副作用由 ChatNotificationManager 消费；
                         // tryEmit 不挂起，事件丢失只影响单次通知更新，不能反压生成链
@@ -750,11 +768,11 @@ class ChatService(
         // 移除无效 tool (未执行的 Tool)
         messagesNodes = messagesNodes.mapIndexed { _, node ->
             // Check for Tool type with non-executed tools
-            val hasPendingTools = node.currentMessage.getTools().any { !it.isExecuted }
+            val hasPendingTools = node.safeCurrentMessage?.getTools().orEmpty().any { !it.isExecuted }
 
             if (hasPendingTools) {
                 // Keep messages that are ready to resume, such as approved/denied/answered tools.
-                val hasResumableTool = node.currentMessage.getTools().any {
+                val hasResumableTool = node.safeCurrentMessage?.getTools().orEmpty().any {
                     !it.isExecuted && it.approvalState.canResumeToolExecution()
                 }
                 if (hasResumableTool) {
@@ -762,15 +780,17 @@ class ChatService(
                 }
 
                 // If all tools are executed, it's valid
-                val allToolsExecuted = node.currentMessage.getTools().all { it.isExecuted }
-                if (allToolsExecuted && node.currentMessage.getTools().isNotEmpty()) {
+                val allToolsExecuted = node.safeCurrentMessage?.getTools().orEmpty().all { it.isExecuted }
+                if (allToolsExecuted && node.safeCurrentMessage?.getTools().orEmpty().isNotEmpty()) {
                     return@mapIndexed node
                 }
 
                 // Remove messages that still have unresolved tool approvals.
+                // [自定义修改] clamp selectIndex，防止 -1 等悬空索引（docs/custom/2026-09-three-features-plan.md）
+                val currentMessage = node.safeCurrentMessage ?: return@mapIndexed node.copy(messages = emptyList(), selectIndex = 0)
                 return@mapIndexed node.copy(
-                    messages = node.messages.filter { it.id != node.currentMessage.id },
-                    selectIndex = node.selectIndex - 1
+                    messages = node.messages.filter { it.id != currentMessage.id },
+                    selectIndex = (node.selectIndex - 1).coerceAtLeast(0)
                 )
             }
             node
@@ -804,7 +824,8 @@ class ChatService(
     private suspend fun finishInterruptedPendingTools(conversationId: Uuid) {
         val currentConversation = getConversationFlow(conversationId).value
         val lastNode = currentConversation.messageNodes.lastOrNull() ?: return
-        val lastMessage = lastNode.currentMessage
+        if (lastNode.messages.isEmpty()) return
+        val lastMessage = lastNode.safeCurrentMessage ?: return
         val updatedMessage = lastMessage.finishPendingTools(::cancelToolByUser)
         if (updatedMessage == lastMessage) {
             return
@@ -855,13 +876,8 @@ class ChatService(
                 params = backgroundTextGenerationParams(model, conversationId, settings.fastModelReasoningLevel),
             )
 
-            // 生成完，conversation可能不是最新了，因此需要重新获取
-            conversationRepo.getConversationById(conversation.id)?.let {
-                saveConversation(
-                    conversationId,
-                    it.copy(title = result.message.toText().trim())
-                )
-            }
+            // Patch the live title only; a DB snapshot may lag behind the next turn.
+            updateTitle(conversationId, result.message.toText().trim())
         }.onFailure {
             it.printStackTrace()
             addError(
@@ -910,17 +926,8 @@ class ChatService(
                 result.message.toText().split("\n").map { it.trim() }
                     .filter { it.isNotBlank() }
 
-            val latestConversation = conversationRepo.getConversationById(conversationId)
-                ?: sessionManager.get(conversationId)?.state?.value
-                ?: conversation
-            saveConversation(
-                conversationId,
-                latestConversation.copy(
-                    chatSuggestions = suggestions.take(
-                        10
-                    )
-                )
-            )
+            updateConversationState(conversationId) { it.copy(chatSuggestions = suggestions.take(10)) }
+            persistCurrentConversation(conversationId)
         }.onFailure {
             it.printStackTrace()
         }
@@ -1016,14 +1023,37 @@ class ChatService(
 
     private fun updateConversation(conversationId: Uuid, conversation: Conversation) {
         if (conversation.id != conversationId) return
-        val session = sessionManager.getOrCreate(conversationId)
-        checkFilesDelete(conversation, session.state.value)
-        session.updateConversation(conversation)
+        updateConversationState(conversationId) { conversation }
     }
 
     fun updateConversationState(conversationId: Uuid, update: (Conversation) -> Conversation) {
-        val current = getConversationFlow(conversationId).value
-        updateConversation(conversationId, update(current))
+        val session = sessionManager.getOrCreate(conversationId)
+        synchronized(session) {
+            val old = session.state.value
+            val latest = session.transformConversation(update)
+            // Schedule inside the same critical section: an older update must never
+            // enqueue its draft after a newer chunk. Metadata patches keep live nodes.
+            draftSaver.schedule(conversationId, latest)
+            checkFilesDelete(latest, old)
+        }
+    }
+
+    suspend fun persistCurrentConversation(conversationId: Uuid): Unit =
+        withContext(kotlinx.coroutines.NonCancellable) {
+            sessionManager.withSession(conversationId) { session ->
+                draftSaver.persist(conversationId, latest = { session.state.value }) { snapshot ->
+                    if (conversationRepo.existsConversationById(conversationId)) {
+                        conversationRepo.updateConversation(snapshot)
+                    } else if (snapshot.title.isNotBlank() || snapshot.messageNodes.isNotEmpty()) {
+                        conversationRepo.insertConversation(snapshot)
+                    }
+                }
+            }
+        }
+
+    suspend fun updateTitle(conversationId: Uuid, title: String) {
+        updateConversationState(conversationId) { it.copy(title = title) }
+        persistCurrentConversation(conversationId)
     }
 
     private suspend fun updateConversationMetadata(
@@ -1110,25 +1140,26 @@ class ChatService(
         }
     }
 
-    suspend fun saveConversation(conversationId: Uuid, conversation: Conversation) {
-        val exists = conversationRepo.existsConversationById(conversation.id)
-        if (!exists && conversation.title.isBlank() && conversation.messageNodes.isEmpty()) {
-            return // 新会话且为空时不保存
+    suspend fun saveConversation(conversationId: Uuid, conversation: Conversation): Unit =
+        withContext(kotlinx.coroutines.NonCancellable) {
+            require(conversation.id == conversationId)
+            // Hold a session reference during disk waits so navigation cannot evict/recreate it.
+            sessionManager.withSession(conversationId) { session ->
+                // Publish before DB suspension; UI/background metadata must use
+                // field patches and persistCurrentConversation instead of old snapshots.
+                updateConversation(conversationId, conversation)
+                draftSaver.persist(conversationId, latest = { session.state.value }) { snapshot ->
+                    val exists = conversationRepo.existsConversationById(conversationId)
+                    if (exists) {
+                        conversationRepo.updateConversation(snapshot)
+                    } else if (snapshot.title.isNotBlank() || snapshot.messageNodes.isNotEmpty()) {
+                        conversationRepo.insertConversation(snapshot)
+                    }
+                }
+            }
+            dispatchNextQueuedMessage(conversationId)
+            Unit
         }
-
-        val updatedConversation = conversation.copy()
-        updateConversation(conversationId, updatedConversation)
-
-        if (!exists) {
-            conversationRepo.insertConversation(updatedConversation)
-        } else {
-            conversationRepo.updateConversation(updatedConversation)
-        }
-
-        // 删除消息或切换分支也可能解除工具审批阻塞，保存成功后重新检查队列。
-        // 调度器仍会检查当前生成任务、待审批工具、暂停状态及编辑占位。
-        dispatchNextQueuedMessage(conversationId)
-    }
 
     // ---- 翻译消息 ----
 
@@ -1202,6 +1233,7 @@ class ChatService(
         parts: List<UIMessagePart>
     ) {
         if (parts.isEmptyInputMessage()) return
+        if (sessionManager.get(conversationId)?.getJob() != null) stopGeneration(conversationId)
 
         val currentConversation = getConversationFlow(conversationId).value
         val settings = settingsStore.settingsFlow.first()
@@ -1272,6 +1304,8 @@ class ChatService(
         nodeId: Uuid,
         selectIndex: Int
     ) {
+        // Switching branches must not let the old generation write into the new branch.
+        if (sessionManager.get(conversationId)?.isGenerating == true) stopGeneration(conversationId)
         val currentConversation = getConversationFlow(conversationId).value
         val targetNode = currentConversation.messageNodes.firstOrNull { it.id == nodeId }
             ?: throw NotFoundException("Message node not found")
@@ -1300,6 +1334,7 @@ class ChatService(
         messageId: Uuid,
         failIfMissing: Boolean = true,
     ) {
+        if (sessionManager.get(conversationId)?.getJob() != null) stopGeneration(conversationId)
         val currentConversation = getConversationFlow(conversationId).value
         val updatedConversation = buildConversationAfterMessageDelete(currentConversation, messageId)
 

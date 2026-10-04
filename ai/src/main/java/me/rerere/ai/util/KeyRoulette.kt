@@ -3,10 +3,78 @@ package me.rerere.ai.util
 import android.content.Context
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import me.rerere.ai.provider.ProviderKeyStrategy
+import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.activeApiKeyValuesForRequest
+import me.rerere.ai.provider.getProviderKeyStrategy
+import me.rerere.ai.provider.isMultiKeyEnabled
+import me.rerere.ai.provider.getApiKeyValue
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+
+/** Request-local selection. No global last-key slot: parallel conversations cannot misattribute failures. */
+object KeyRotationPolicy {
+    private val roundRobinCounters = ConcurrentHashMap<String, AtomicInteger>()
+
+    fun init(context: Context) = KeyHealthRegistry.init(context)
+    val healthFlow = KeyHealthRegistry.health
+    private val _policy = kotlinx.coroutines.flow.MutableStateFlow(KeyManagementPolicy())
+    val policyFlow: kotlinx.coroutines.flow.StateFlow<KeyManagementPolicy> = _policy
+    val policy: KeyManagementPolicy get() = _policy.value
+    fun configure(value: KeyManagementPolicy) {
+        val normalized = value.clamped()
+        KeyHealthRegistry.configure(normalized)
+        _policy.value = normalized
+    }
+    fun clearAllHealth() = KeyHealthRegistry.clearAll()
+
+    fun manages(provider: ProviderSetting): Boolean = provider.isMultiKeyEnabled() &&
+        !(provider is ProviderSetting.Google && provider.vertexAI && provider.useServiceAccount)
+
+    fun pick(provider: ProviderSetting): String {
+        val id = provider.id.toString()
+        val ready = KeyHealthRegistry.filterReady(id, provider.activeApiKeyValuesForRequest())
+        // Empty/disabled/exhausted/cooling pools must not fall back to the old raw key field.
+        if (ready.isEmpty()) throw AllKeysSuspendedException(id)
+        return when (provider.getProviderKeyStrategy()) {
+            ProviderKeyStrategy.RANDOM -> ready.random()
+            ProviderKeyStrategy.ROUND_ROBIN -> {
+                val counter = roundRobinCounters.getOrPut(id) { AtomicInteger(0) }
+                val index = counter.getAndUpdate { if (it == Int.MAX_VALUE) 0 else it + 1 }
+                ready[Math.floorMod(index, ready.size)]
+            }
+        }
+    }
+
+    fun reportFailure(providerId: String, keyValue: String, error: Throwable) {
+        if (error is kotlinx.coroutines.CancellationException) return
+        val decision = KeyHealthRegistry.decision(error)
+        if (decision.rule.action == KeyFailureAction.IGNORE) return
+        // Persist a category only, never the upstream text or matching keywords.
+        KeyHealthRegistry.mark(providerId, keyValue, decision)
+    }
+
+    fun isKeyLevelError(error: Throwable): Boolean =
+        KeyHealthRegistry.decision(error).rule.action != KeyFailureAction.IGNORE
+
+    fun hasReadyAlternative(provider: ProviderSetting): Boolean = manages(provider) &&
+        KeyHealthRegistry.filterReady(provider.id.toString(), provider.activeApiKeyValuesForRequest()).isNotEmpty()
+
+    fun clearKeyHealth(providerId: String, keyValue: String) = KeyHealthRegistry.clearKey(providerId, keyValue)
+    fun clearProviderHealth(providerId: String) = KeyHealthRegistry.clearProvider(providerId)
+}
 
 interface KeyRoulette {
     fun next(keys: String, providerId: String = ""): String
+
+    // Read the request's settings, not an eventually-synchronized global registry.
+    // A pinned/single-test copy has multiKeyEnabled=false, hence cannot be rotated again.
+    fun next(provider: ProviderSetting): String = if (KeyRotationPolicy.manages(provider)) {
+        KeyRotationPolicy.pick(provider)
+    } else {
+        next(provider.getApiKeyValue(), provider.id.toString())
+    }
 
     companion object {
         fun default(): KeyRoulette = DefaultKeyRoulette()

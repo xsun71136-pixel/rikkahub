@@ -69,6 +69,10 @@ sealed class ProviderSetting {
         var useResponseApi: Boolean = false,
         var includeHistoryReasoning: Boolean = true,
         var responsesPath: String = "/responses",
+        // [自定义修改] 多 Key 模式
+        var multiKeyEnabled: Boolean = false,
+        var apiKeys: List<ProviderApiKey> = emptyList(),
+        var keyStrategy: ProviderKeyStrategy = ProviderKeyStrategy.RANDOM,
     ) : ProviderSetting() {
         override fun addModel(model: Model): ProviderSetting {
             return copy(models = models + model)
@@ -138,6 +142,10 @@ sealed class ProviderSetting {
         var location: String = "us-central1", // only for vertex AI service account
         var projectId: String = "", // only for vertex AI service account
         var useInteractionsApi: Boolean = false, // ignored when vertex AI is enabled
+        // [自定义修改] 多 Key 模式
+        var multiKeyEnabled: Boolean = false,
+        var apiKeys: List<ProviderApiKey> = emptyList(),
+        var keyStrategy: ProviderKeyStrategy = ProviderKeyStrategy.RANDOM,
     ) : ProviderSetting() {
         override fun addModel(model: Model): ProviderSetting {
             return copy(models = models + model)
@@ -202,6 +210,10 @@ sealed class ProviderSetting {
         var baseUrl: String = "https://api.anthropic.com/v1",
         var promptCaching: Boolean = false,
         var promptCacheTtl: ClaudePromptCacheTtl = ClaudePromptCacheTtl.FIVE_MINUTES,
+        // [自定义修改] 多 Key 模式
+        var multiKeyEnabled: Boolean = false,
+        var apiKeys: List<ProviderApiKey> = emptyList(),
+        var keyStrategy: ProviderKeyStrategy = ProviderKeyStrategy.RANDOM,
     ) : ProviderSetting() {
         override fun addModel(model: Model): ProviderSetting {
             return copy(models = models + model)

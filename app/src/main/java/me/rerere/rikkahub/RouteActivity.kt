@@ -210,6 +210,13 @@ class RouteActivity : ComponentActivity() {
         handleIntent(intent)
     }
 
+    // [自定义修改] 后台切换时立即保存生成草稿
+    override fun onStop() {
+        super.onStop()
+        me.rerere.rikkahub.ext.resilience.StreamDraftSaver.flushActive()
+    }
+
+
     private fun handleIntent(intent: Intent) {
         val backStack = navStack ?: run {
             // Compose 尚未创建导航栈，待就绪后处理。

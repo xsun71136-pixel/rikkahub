@@ -285,14 +285,13 @@ class ChatVM(
 
     fun saveConversationAsync() {
         viewModelScope.launch {
-            chatService.saveConversation(_conversationId, conversation.value)
+            chatService.persistCurrentConversation(_conversationId)
         }
     }
 
     fun updateTitle(title: String) {
         viewModelScope.launch {
-            val updatedConversation = conversation.value.copy(title = title)
-            chatService.saveConversation(_conversationId, updatedConversation)
+            chatService.updateTitle(_conversationId, title)
         }
     }
 
@@ -337,9 +336,25 @@ class ChatVM(
         chatService.clearTranslationField(_conversationId, messageId)
     }
 
-    fun updateConversation(newConversation: Conversation) {
-        chatService.updateConversationState(_conversationId) {
-            newConversation
+    fun updateConversation(update: (Conversation) -> Conversation) {
+        chatService.updateConversationState(_conversationId, update)
+        saveConversationAsync()
+    }
+
+    // [自定义修改] 分支切换安全路径（docs/custom/2026-09-three-features-plan.md）：
+    // ChatService.selectMessageNode 基于服务层新鲜状态校验并持久化，异常转为错误卡片而不是崩溃。
+    fun selectMessageNode(nodeId: Uuid, selectIndex: Int) {
+        viewModelScope.launch {
+            runCatching {
+                chatService.selectMessageNode(_conversationId, nodeId, selectIndex)
+            }.onFailure {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                chatService.addError(
+                    error = it,
+                    conversationId = _conversationId,
+                    title = context.getString(R.string.error_title_operation)
+                )
+            }
         }
     }
 

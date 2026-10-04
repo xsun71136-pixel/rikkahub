@@ -25,6 +25,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collect
 import me.rerere.common.android.appTempFolder
 import me.rerere.rikkahub.di.appModule
 import me.rerere.rikkahub.di.dataSourceModule
@@ -78,8 +79,20 @@ class RikkaHubApp : Application() {
         // set cursor window size to 32MB
         DatabaseUtil.setCursorWindowSize(32 * 1024 * 1024)
 
+        // [自定义修改] Key 健康注册表：加载持久化的停用/冷却记录（docs/custom/2026-09-three-features-plan.md）
+        me.rerere.ai.util.KeyRotationPolicy.init(this)
+        get<AppScope>().launch {
+            get<SettingsStore>().settingsFlowRaw.collect { settings ->
+                me.rerere.ai.util.KeyRotationPolicy.configure(settings.networkSetting.keyManagement)
+            }
+        }
+
         // install crash handler
-        CrashHandler.install(this)
+        // [自定义修改] 崩溃时应急保存所有生成中会话的草稿（docs/custom/2026-09-three-features-plan.md）
+        // Do not resolve lazy DI services on the crash path.
+        CrashHandler.install(this) {
+            me.rerere.rikkahub.ext.resilience.StreamDraftSaver.flushActiveBlocking(1500)
+        }
 
         // delete temp files
         deleteTempFiles()

@@ -1,0 +1,66 @@
+package me.rerere.ai.util
+
+import kotlinx.serialization.Serializable
+import kotlin.math.pow
+
+@Serializable
+enum class KeyFailureAction { IGNORE, COOLDOWN, SUSPEND }
+
+/** Global policy. Changes affect future failures; existing records retain their expiry. */
+@Serializable
+data class KeyManagementPolicy(
+    val enabled: Boolean = true,
+    val invalidRule: KeyFailureRule? = null,
+    val quotaRule: KeyFailureRule? = null,
+    val rateLimitRule: KeyFailureRule? = null,
+    val customRules: List<CustomKeyRule> = emptyList(),
+    val invalidAction: KeyFailureAction = KeyFailureAction.SUSPEND,
+    val quotaAction: KeyFailureAction = KeyFailureAction.SUSPEND,
+    val rateLimitAction: KeyFailureAction = KeyFailureAction.COOLDOWN,
+    val suspendHours: Int = 24,
+    val manualRecoveryOnly: Boolean = false,
+    val cooldownSeconds: Int = 60,
+    val maxCooldownSeconds: Int = 1800,
+    val cooldownMultiplier: Double = 2.0,
+    val autoSwitch: Boolean = true,
+    val maxSwitches: Int = 8,
+    val switchDelayMs: Long = 300,
+) {
+    fun clamped(): KeyManagementPolicy = copy(
+        invalidRule = invalidRule?.clamped(), quotaRule = quotaRule?.clamped(), rateLimitRule = rateLimitRule?.clamped(),
+        customRules = customRules.take(30).map { it.clamped() }.distinctBy { it.id },
+        suspendHours = suspendHours.coerceIn(1, 720),
+        cooldownSeconds = cooldownSeconds.coerceIn(1, 3600),
+        maxCooldownSeconds = maxCooldownSeconds.coerceIn(cooldownSeconds.coerceIn(1, 3600), 86400),
+        cooldownMultiplier = if (cooldownMultiplier.isFinite()) cooldownMultiplier.coerceIn(1.0, 5.0) else 2.0,
+        maxSwitches = maxSwitches.coerceIn(0, 20),
+        switchDelayMs = switchDelayMs.coerceIn(0, 10000),
+    )
+
+    fun ruleFor(kind: Int): KeyFailureRule {
+        val explicit = when (kind) { 0 -> invalidRule; 1 -> quotaRule; else -> rateLimitRule }
+        if (explicit != null) return explicit.clamped()
+        return KeyFailureRule(
+            action = when (kind) { 0 -> invalidAction; 1 -> quotaAction; else -> rateLimitAction },
+            suspendMinutes = suspendHours.coerceIn(1, 720) * 60,
+            manualRecoveryOnly = manualRecoveryOnly, cooldownSeconds = cooldownSeconds,
+            maxCooldownSeconds = maxCooldownSeconds, multiplier = cooldownMultiplier,
+        ).clamped()
+    }
+
+    internal fun rule(verdict: KeyVerdict): KeyFailureRule = when (verdict) {
+        KeyVerdict.INVALID -> ruleFor(0)
+        KeyVerdict.QUOTA -> ruleFor(1)
+        KeyVerdict.COOLDOWN -> ruleFor(2)
+        KeyVerdict.NEUTRAL -> KeyFailureRule(action = KeyFailureAction.IGNORE)
+    }
+
+    internal fun action(verdict: KeyVerdict): KeyFailureAction =
+        if (!enabled) KeyFailureAction.IGNORE else rule(verdict).action
+
+    fun cooldownDurationMs(failures: Int): Long {
+        val c = clamped()
+        return (c.cooldownSeconds * 1000.0 * c.cooldownMultiplier.pow((failures.coerceIn(1, 32) - 1)))
+            .coerceAtMost(c.maxCooldownSeconds * 1000.0).toLong()
+    }
+}

@@ -1,0 +1,27 @@
+{
+  "base": "00c8d53a5c74554c92848cf821d551a17f576995",
+  "changed_files": 59,
+  "kotlin_files": 49,
+  "xml_files": 24,
+  "new_strings": 202,
+  "checks": 476,
+  "failures": [],
+  "parser": {
+    "available": true,
+    "files": 49,
+    "baseline_limitations": [
+      {
+        "file": "ai/src/main/java/me/rerere/ai/provider/ProviderSetting.kt",
+        "current": 6,
+        "baseline": 6
+      },
+      {
+        "file": "ai/src/main/java/me/rerere/ai/provider/providers/google/GoogleProvider.kt",
+        "current": 2,
+        "baseline": 2
+      }
+    ]
+  },
+  "compiled": false,
+  "kotlin_tests_executed": false
+}

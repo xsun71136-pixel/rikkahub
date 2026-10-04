@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.ui.pages.chat
 
+
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.hugeicons.stroke.ArrowDown01
@@ -93,6 +94,7 @@ import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MessageNode
+import me.rerere.rikkahub.ext.resilience.safeCurrentMessage
 import me.rerere.rikkahub.service.ChatError
 import me.rerere.rikkahub.ui.components.message.ChatMessage
 import me.rerere.rikkahub.ui.components.ui.ErrorCardsDisplay
@@ -316,6 +318,8 @@ private fun ChatListNormal(
                 items = conversation.messageNodes,
                 key = { index, item -> item.id },
             ) { index, node ->
+                // [自定义修改] 跳过无消息的损坏节点，防止 currentMessage 抛异常导致闪退
+                if (node.messages.isEmpty()) return@itemsIndexed
                 Column {
                     ListSelectableItem(
                         key = node.id,
@@ -331,20 +335,20 @@ private fun ChatListNormal(
                     ) {
                         ChatMessage(
                             node = node,
-                            model = node.currentMessage.modelId?.let(modelById::get),
+                            model = node.safeCurrentMessage?.modelId?.let(modelById::get),
                             assistant = assistant,
                             loading = loading && index == lastMessageIndex,
                             onRegenerate = {
-                                onRegenerate(node.currentMessage)
+                                node.safeCurrentMessage?.let(onRegenerate)
                             },
                             onEdit = {
-                                onEdit(node.currentMessage)
+                                node.safeCurrentMessage?.let(onEdit)
                             },
                             onFork = {
-                                onForkMessage(node.currentMessage)
+                                node.safeCurrentMessage?.let(onForkMessage)
                             },
                             onDelete = {
-                                onDelete(node.currentMessage)
+                                node.safeCurrentMessage?.let(onDelete)
                             },
                             onShare = {
                                 selecting = true  // 使用 CoroutineScope 延迟状态更新
@@ -502,8 +506,9 @@ private fun ChatListNormal(
                     selectedItems.clear()
                 },
                 conversation = conversation,
-                selectedMessages = conversation.messageNodes.filter { it.id in selectedItems }
-                    .map { it.currentMessage }
+                selectedMessages = conversation.messageNodes
+                    .filter { it.id in selectedItems }
+                    .mapNotNull { it.safeCurrentMessage }
             )
 
             val captureProgress = LocalScrollCaptureInProgress.current
@@ -610,7 +615,10 @@ private fun ChatListPreview(
             conversation.messageNodes.mapIndexed { index, node -> index to node }
         } else {
             conversation.messageNodes.mapIndexed { index, node -> index to node }
-                .filter { (_, node) -> node.currentMessage.toText().contains(searchQuery, ignoreCase = true) }
+                .filter { (_, node) ->
+                    // [自定义修改] 安全访问，防止损坏节点在搜索时崩溃
+                    node.safeCurrentMessage?.toText()?.contains(searchQuery, ignoreCase = true) == true
+                }
         }
     }
 
@@ -663,7 +671,7 @@ private fun ChatListPreview(
                 items = filteredMessages,
                 key = { index, item -> item.second.id },
             ) { _, (originalIndex, node) ->
-                val message = node.currentMessage
+                val message = node.safeCurrentMessage ?: return@itemsIndexed
                 val isUser = message.role == me.rerere.ai.core.MessageRole.USER
                 Column(
                     modifier = Modifier

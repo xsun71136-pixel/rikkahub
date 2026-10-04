@@ -42,10 +42,15 @@ data class Conversation(
 
     /**
      *  当前选中的 message
+     *  [自定义修改] 使用 clamp 语义防止非法 selectIndex 导致崩溃，
+     *  见 docs/custom/2026-09-three-features-plan.md
      */
     val currentMessages
         get(): List<UIMessage> {
-            return messageNodes.map { node -> node.messages[node.selectIndex] }
+            return messageNodes.mapNotNull { node ->
+                if (node.messages.isEmpty()) return@mapNotNull null
+                node.messages[node.selectIndex.coerceIn(0, node.messages.lastIndex)]
+            }
         }
 
     fun getMessageNodeByMessage(message: UIMessage): MessageNode? {
@@ -57,14 +62,15 @@ data class Conversation(
     }
 
     fun updateCurrentMessages(messages: List<UIMessage>): Conversation {
-        val newNodes = this.messageNodes.toMutableList()
+        // Keep the same indexing as currentMessages, which skips empty/corrupt nodes.
+        val newNodes = this.messageNodes.filter { it.messages.isNotEmpty() }.toMutableList()
 
         messages.forEachIndexed { index, message ->
             val node = newNodes
                 .getOrElse(index) { message.toMessageNode() }
 
             val newMessages = node.messages.toMutableList()
-            var newMessageIndex = node.selectIndex
+            var newMessageIndex = node.selectIndex.coerceIn(0, newMessages.lastIndex)
             if (newMessages.any { it.id == message.id }) {
                 newMessages[newMessages.indexOfFirst { it.id == message.id }] = message
             } else {
@@ -113,10 +119,11 @@ data class MessageNode(
     @Transient
     val isFavorite: Boolean = false,
 ) {
-    val currentMessage get() = if (messages.isEmpty() || selectIndex !in messages.indices) {
+    // [自定义修改] clamp 非法 selectIndex，防止渲染/服务层因悬空索引崩溃（docs/custom/2026-09-three-features-plan.md）
+    val currentMessage get() = if (messages.isEmpty()) {
         throw IllegalStateException("MessageNode has no valid current message: messages.size=${messages.size}, selectIndex=$selectIndex")
     } else {
-        messages[selectIndex]
+        messages[selectIndex.coerceIn(0, messages.lastIndex)]
     }
 
     val role get() = messages.firstOrNull()?.role ?: MessageRole.USER
