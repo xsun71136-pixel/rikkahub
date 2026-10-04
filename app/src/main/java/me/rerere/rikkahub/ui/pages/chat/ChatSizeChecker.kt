@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.ui.pages.chat
 
+import me.rerere.rikkahub.ext.resilience.safeCurrentMessage
+
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Alert01
 import androidx.compose.material3.AlertDialog
@@ -39,7 +41,7 @@ fun rememberConversationSizeInfo(conversation: Conversation): ConversationSizeIn
     return remember(conversation.messageNodes) {
         val nodeCount = conversation.messageNodes.size
         val lastAssistantInputTokens = conversation.messageNodes.asReversed()
-            .map { it.currentMessage }
+            .mapNotNull { it.safeCurrentMessage }
             .firstOrNull { it.role == MessageRole.ASSISTANT }
             ?.usage
             ?.promptTokens
