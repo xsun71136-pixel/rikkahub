@@ -55,6 +55,11 @@ class ConversationSession(
         initialized = true
     }
 
+    /** Apply a field patch to the live state without a read/update race. */
+    @Synchronized
+    fun transformConversation(update: (Conversation) -> Conversation): Conversation =
+        update(state.value).also { updateConversation(it) }
+
     // 元数据先应用到最新内存状态；落库只更新对应列，不能用旧消息快照覆盖流式输出。
     internal suspend fun updateMetadata(
         update: (Conversation) -> Conversation,
