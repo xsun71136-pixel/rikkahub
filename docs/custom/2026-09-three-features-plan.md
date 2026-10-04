@@ -2089,3 +2089,8 @@ This addendum supersedes only the presentation/layout portions of the previous t
 - Keep the existing manager sheet and all operations.
 - Replace the visually flat control strip with a small pool-status summary, a compact strategy row, and a separate action/search row.
 - Keep each key as a dense list row: alias, masked value, health state/countdown, enable switch, test, and overflow actions. No large key cards and no new actions.
+
+### Follow-up correction: retry tab navigation
+- The refined retry sheet retains the original two-tab navigation (`Basics` / `Rules`) above the scrollable body.
+- Switching tabs only changes the visible editor group; it does not alter retry behavior or persistence semantics.
+- Dismissal still routes through the existing dirty-draft confirmation before closing.

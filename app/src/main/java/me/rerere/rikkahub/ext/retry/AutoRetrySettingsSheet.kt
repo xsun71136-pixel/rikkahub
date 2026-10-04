@@ -1,8 +1,8 @@
 package me.rerere.rikkahub.ext.retry
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.PaddingValues
 import me.rerere.hugeicons.HugeIcons
-import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.ArrowRight01
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -68,6 +68,14 @@ fun AutoRetrySettingsSheet(visible: Boolean, onDismissRequest: () -> Unit, setti
             }
         },
     ) {
+        SecondaryTabRow(
+            selectedTabIndex = tab,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.polish_basic)) })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.polish_rules)) })
+        }
+        HorizontalDivider()
         LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 12.dp)) {
             item {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
