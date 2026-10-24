@@ -48,6 +48,8 @@ android {
         }
     }
 
+    var releaseSigningConfigured = false
+
     signingConfigs {
         create("release") {
             val localProperties = Properties()
@@ -68,6 +70,7 @@ android {
                     storePassword = storePasswordValue
                     keyAlias = keyAliasValue
                     keyPassword = keyPasswordValue
+                    releaseSigningConfigured = true
                 }
             }
         }
@@ -75,7 +78,10 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            // 未配置签名信息时（如 CI）产出未签名 APK，由使用者自行签名
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             optimization {
                 enable = true
             }

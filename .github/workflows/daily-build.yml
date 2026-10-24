@@ -82,24 +82,39 @@ jobs:
 
       - name: Prepare build files
         run: |
-          # 解码base64编码的keystore文件
-          echo "${{ secrets.KEY_BASE64 }}" | base64 -d > app/app.key
-
-          # 写入签名配置到local.properties
-          echo "${{ secrets.SIGNING_CONFIG }}" > local.properties
-
-          # 写入Google Services配置（自动识别原始 JSON 或 base64 编码）
-          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > /tmp/gs_secret.txt
-          if grep -q '{' /tmp/gs_secret.txt; then
-            cp /tmp/gs_secret.txt app/google-services.json
-          else
-            base64 -d /tmp/gs_secret.txt > app/google-services.json
-          fi
-          # 校验：google-services.json 必须是以 { 开头的合法 JSON
-          if [ "$(head -c 1 app/google-services.json)" != "{" ]; then
-            echo "::error::GOOGLE_SERVICES_JSON 内容不是有效 JSON，请检查仓库 secret（支持原始 JSON 或 base64 两种格式）"
-            exit 1
-          fi
+          # CI 不配置签名密钥：app/build.gradle.kts 在缺少签名配置时自动产出未签名 APK，由使用者自行签名
+          # 写入占位 google-services.json（仅满足 com.google.gms.google-services 插件的格式校验，Firebase 云端功能在 CI 包中不可用）
+          cat > app/google-services.json << 'GS_JSON_EOF'
+          {
+            "project_info": {
+              "project_number": "100000000000",
+              "project_id": "rikkahub-ci-placeholder",
+              "storage_bucket": "rikkahub-ci-placeholder.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:100000000000:android:0000000000000000000000",
+                  "android_client_info": {
+                    "package_name": "me.rerere.rikkahub"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [
+                  {
+                    "current_key": "AIzaSyCiPlaceholderKeyForUnsignedBuild00"
+                  }
+                ],
+                "services": {
+                  "appinvite_service": {
+                    "other_platform_oauth_client": []
+                  }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          GS_JSON_EOF
 
       - name: Gradle Build
         run: |
