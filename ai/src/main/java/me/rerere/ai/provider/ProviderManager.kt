@@ -51,17 +51,25 @@ class ProviderManager(
     /**
      * 根据ProviderSetting获取对应的Provider实例
      *
+     * API Key 类的提供商外面套一层多 Key 并发装饰器：配置没开并发时它直接透传，
+     * 开启后同一请求同时用两个密钥发，谁先回用谁。
+     *
      * @param setting Provider设置
      * @return Provider实例，如果不存在则返回null
      */
     fun <T : ProviderSetting> getProviderByType(setting: T): Provider<T> {
         @Suppress("UNCHECKED_CAST")
-        return when (setting) {
+        val provider = when (setting) {
             is ProviderSetting.OpenAI -> getProvider("openai")
             is ProviderSetting.Google -> getProvider("google")
             is ProviderSetting.Claude -> getProvider("claude")
             is ProviderSetting.ChatGPT -> getProvider("chatgpt")
             is ProviderSetting.Grok -> getProvider("grok")
         } as Provider<T>
+        if (setting is ProviderSetting.ApiKey) {
+            @Suppress("UNCHECKED_CAST")
+            return MultiKeyRaceProvider(provider as Provider<ProviderSetting.ApiKey>) as Provider<T>
+        }
+        return provider
     }
 }

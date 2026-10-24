@@ -35,6 +35,45 @@ enum class ClaudePromptCacheTtl(val apiValue: String?) {
     ONE_HOUR("1h")
 }
 
+/** 多 Key 模式下密钥的调用方式 */
+@Serializable
+enum class MultiKeyStrategy {
+    /** 按顺序轮着用，优先挑最久没用过的那个 */
+    @SerialName("round_robin")
+    ROUND_ROBIN,
+
+    /** 每次随机挑一个可用密钥 */
+    @SerialName("random")
+    RANDOM,
+
+    /** 同一请求同时发两个，谁先回用谁；更快但双倍消耗 */
+    @SerialName("parallel")
+    PARALLEL,
+}
+
+/**
+ * 多 Key 模式配置（[ProviderSetting.ApiKey]）。
+ *
+ * 关闭时只用第一个密钥，保持单 Key 行为；开启后多个密钥按 [strategy] 轮流使用。
+ * 请求失败且错误命中 [pauseRules] 之一时，那个密钥先跳过 [pauseDurationMinutes]（-1 = 手动恢复）。
+ * 密钥列表本身存在 [ProviderSetting.ApiKey.apiKey] 里，用空白/逗号分隔。
+ */
+@Serializable
+data class MultiKeyConfig(
+    val enabled: Boolean = false,
+    val strategy: MultiKeyStrategy = MultiKeyStrategy.ROUND_ROBIN,
+    val pauseDurationMinutes: Int = 5,
+    val pauseRules: List<String> = DEFAULT_PAUSE_RULES,
+) {
+    companion object {
+        val DEFAULT_PAUSE_RULES = listOf(
+            "429 insufficient_quota",
+            "401 invalid_api_key",
+            "rate_limit_exceeded",
+        )
+    }
+}
+
 /**
  * 是否支持模型内置联网搜索（[BuiltInTools.Search]）。
  *
@@ -103,8 +142,11 @@ sealed class ProviderSetting {
         var useResponseApi: Boolean = false,
         var includeHistoryReasoning: Boolean = true,
         var responsesPath: String = "/responses",
+        override val multiKey: MultiKeyConfig = MultiKeyConfig(),
     ) : ApiKey() {
         override fun withQuotaQuery(query: QuotaQuery): ApiKey = copy(quotaQuery = query)
+
+        override fun withMultiKey(config: MultiKeyConfig): ApiKey = copy(multiKey = config)
 
         override fun copyProvider(
             id: Uuid,
@@ -151,8 +193,11 @@ sealed class ProviderSetting {
         var location: String = "us-central1", // only for vertex AI service account
         var projectId: String = "", // only for vertex AI service account
         var useInteractionsApi: Boolean = false, // ignored when vertex AI is enabled
+        override val multiKey: MultiKeyConfig = MultiKeyConfig(),
     ) : ApiKey() {
         override fun withQuotaQuery(query: QuotaQuery): ApiKey = copy(quotaQuery = query)
+
+        override fun withMultiKey(config: MultiKeyConfig): ApiKey = copy(multiKey = config)
 
         override fun copyProvider(
             id: Uuid,
@@ -193,8 +238,11 @@ sealed class ProviderSetting {
         override var baseUrl: String = "https://api.anthropic.com/v1",
         var promptCaching: Boolean = false,
         var promptCacheTtl: ClaudePromptCacheTtl = ClaudePromptCacheTtl.FIVE_MINUTES,
+        override val multiKey: MultiKeyConfig = MultiKeyConfig(),
     ) : ApiKey() {
         override fun withQuotaQuery(query: QuotaQuery): ApiKey = copy(quotaQuery = query)
+
+        override fun withMultiKey(config: MultiKeyConfig): ApiKey = copy(multiKey = config)
 
         override fun copyProvider(
             id: Uuid,
@@ -228,7 +276,12 @@ sealed class ProviderSetting {
         /** 用户自定义的额度查询 */
         abstract val quotaQuery: QuotaQuery
 
+        /** 多 Key 模式配置 */
+        abstract val multiKey: MultiKeyConfig
+
         abstract fun withQuotaQuery(query: QuotaQuery): ApiKey
+
+        abstract fun withMultiKey(config: MultiKeyConfig): ApiKey
     }
 
     /**
@@ -330,4 +383,26 @@ sealed class ProviderSetting {
             )
         }
     }
+}
+
+private val API_KEY_SPLIT_REGEX = "[\\s,]+".toRegex() // 空格换行和逗号
+
+/** [ProviderSetting.ApiKey.apiKey] 里配置的全部密钥：按空白/逗号分隔，去空白去重，保持书写顺序 */
+fun ProviderSetting.ApiKey.splitApiKeys(): List<String> =
+    apiKey.split(API_KEY_SPLIT_REGEX)
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinct()
+
+/** 多 Key 关闭时的行为：只用第一个密钥 */
+fun ProviderSetting.ApiKey.firstApiKey(): String = splitApiKeys().firstOrNull() ?: apiKey.trim()
+
+/**
+ * 返回把密钥固定为 [key] 的副本（多 Key 的测试和并发竞速用：内层请求看到的只有这一个密钥，
+ * 选择、计数和失败上报都在内层按单 key 完成）。
+ */
+fun ProviderSetting.ApiKey.withApiKey(key: String): ProviderSetting.ApiKey = when (this) {
+    is ProviderSetting.OpenAI -> copy(apiKey = key)
+    is ProviderSetting.Google -> copy(apiKey = key)
+    is ProviderSetting.Claude -> copy(apiKey = key)
 }
