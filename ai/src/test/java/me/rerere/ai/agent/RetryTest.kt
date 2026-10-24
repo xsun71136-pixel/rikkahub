@@ -79,4 +79,85 @@ class RetryTest {
         assertTrue(job.isCancelled)
         assertEquals(1, calls)
     }
+
+    @Test
+    fun `custom factor caps backoff at max delay`() = runTest {
+        val attempts = mutableListOf<RetryAttempt>()
+        var calls = 0
+
+        runCatching {
+            withRetry(
+                RetryPolicy(
+                    maxRetries = 5,
+                    initialDelay = 1.seconds,
+                    maxDelay = 3.seconds,
+                    backoffFactor = 4.0,
+                    jitter = false,
+                ),
+                onRetry = { attempts += it },
+            ) {
+                calls++
+                throw IOException("offline")
+            }
+        }
+
+        assertEquals(6, calls)
+        assertEquals(
+            listOf(1.seconds, 3.seconds, 3.seconds, 3.seconds, 3.seconds),
+            attempts.map { it.delay },
+        )
+    }
+
+    @Test
+    fun `jitter keeps delay within 20 percent of computed backoff`() = runTest {
+        val delays = mutableListOf<Duration>()
+
+        runCatching {
+            withRetry(
+                RetryPolicy(
+                    maxRetries = 5,
+                    initialDelay = 10.seconds,
+                    backoffFactor = 2.0,
+                    jitter = true,
+                ),
+                onRetry = { delays += it.delay },
+            ) {
+                throw IOException("offline")
+            }
+        }
+
+        val expected = listOf(10_000.0, 20_000.0, 30_000.0, 30_000.0, 30_000.0)
+        delays.zip(expected).forEach { (actual, base) ->
+            val ms = actual.inWholeMilliseconds.toDouble()
+            assertTrue(
+                "delay $ms should be within ±20% of $base",
+                ms >= base * 0.8 - 1 && ms <= base * 1.2 + 1,
+            )
+        }
+    }
+
+    @Test
+    fun `response check hit triggers retry`() = runTest {
+        var calls = 0
+
+        val result = withRetry(
+            RetryPolicy(
+                maxRetries = 2,
+                initialDelay = Duration.ZERO,
+                retryOn = { it is RetryableResponseException },
+                responseRetryCheck = { message ->
+                    message.toText().takeIf { text -> text.contains("busy") }
+                },
+            ),
+        ) {
+            calls++
+            if (calls == 1) {
+                throw RetryableResponseException("busy")
+            }
+            "ok"
+        }
+
+        assertEquals("ok", result)
+        assertEquals(2, calls)
+    }
 }
