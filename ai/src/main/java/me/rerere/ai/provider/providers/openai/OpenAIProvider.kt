@@ -53,14 +53,14 @@ class OpenAIProvider(
     private val client: OkHttpClient,
     context: Context? = null
 ) : Provider<ProviderSetting.OpenAI> {
-    private val keyRoulette = if (context != null) KeyRoulette.lru(context) else KeyRoulette.default()
+    private val keyRoulette = if (context != null) KeyRoulette.multiKey(context) else KeyRoulette.default()
 
     private val chatCompletionsAPI = ChatCompletionsAPI(client = client, keyRoulette = keyRoulette)
     private val responseAPI = ResponseAPI(client = client, keyRoulette = keyRoulette)
 
     override suspend fun listModels(providerSetting: ProviderSetting.OpenAI): List<Model> =
         withContext(Dispatchers.IO) {
-            val key = keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())
+            val key = keyRoulette.next(providerSetting)
             val request = Request.Builder()
                 .url("${providerSetting.baseUrl}/models")
                 .headers(providerSetting.mergeCustomHeaders())
@@ -90,7 +90,7 @@ class OpenAIProvider(
 
     override suspend fun getQuota(providerSetting: ProviderSetting.OpenAI): ProviderQuota? =
         client.runQuotaQuery(providerSetting) {
-            keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())
+            keyRoulette.next(providerSetting)
         }
 
     override suspend fun streamText(
@@ -135,7 +135,7 @@ class OpenAIProvider(
     ): EmbeddingGenerationResult = withContext(Dispatchers.IO) {
         require(params.input.isNotEmpty()) { "Embedding input cannot be empty" }
 
-        val key = keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())
+        val key = keyRoulette.next(providerSetting)
         val requestBody = json.encodeToString(
             buildJsonObject {
                 put("model", params.model.modelId)
@@ -188,7 +188,7 @@ class OpenAIProvider(
             "Expected OpenAI provider setting"
         }
 
-        val key = keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())
+        val key = keyRoulette.next(providerSetting)
 
         val requestBody = json.encodeToString(
             buildJsonObject {
@@ -241,7 +241,7 @@ class OpenAIProvider(
             "At least one image is required"
         }
 
-        val key = keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())
+        val key = keyRoulette.next(providerSetting)
 
         // OpenRouter 没有 /images/edits，参考图通过图像生成接口的 input_references 传入
         if (providerSetting.baseUrl.toHttpUrlOrNull()?.host?.lowercase() == "openrouter.ai") {
