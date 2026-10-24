@@ -340,6 +340,9 @@ private fun ProviderConfigureOpenAI(
         )
     }
 
+    // 多 Key 模式：密钥列表、使用方式、暂停与测试
+    MultiKeyCard(provider = provider, onEdit = onEdit)
+
     CardGroup {
         switchItem(
             checked = provider.useResponseApi,
@@ -524,6 +527,9 @@ private fun ProviderConfigureClaude(
         )
     }
 
+    // 多 Key 模式：密钥列表、使用方式、暂停与测试
+    MultiKeyCard(provider = provider, onEdit = onEdit)
+
     CardGroup {
         switchItem(
             checked = provider.promptCaching,
@@ -604,6 +610,11 @@ private fun ProviderConfigureGoogle(
                 },
             )
         }
+    }
+
+    // 多 Key 模式：密钥列表、使用方式、暂停与测试（服务账号没有 API Key，不适用）
+    if (!useServiceAccount) {
+        MultiKeyCard(provider = provider, onEdit = onEdit)
     }
 
     CardGroup {
