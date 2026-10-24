@@ -34,6 +34,7 @@ import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.finishReasoning
 import me.rerere.ai.ui.isEmptyInputMessage
 import me.rerere.common.android.Logging
 import me.rerere.rikkahub.AppScope
@@ -48,6 +49,8 @@ import me.rerere.rikkahub.data.ai.prompts.buildCompressPrompt
 import me.rerere.rikkahub.data.ai.tools.InvalidMcpServerNamesException
 import me.rerere.rikkahub.data.ai.tools.shouldUseExternalWebSearch
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.datastore.findModelById
+import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
@@ -65,6 +68,7 @@ import me.rerere.rikkahub.data.model.getChatModelOf
 import me.rerere.rikkahub.data.model.getStoredAssistantOf
 import me.rerere.rikkahub.data.model.insertContextCheckpoint
 import me.rerere.rikkahub.data.model.isAwaitingToolApproval
+import me.rerere.rikkahub.data.model.lastContextTokens
 import me.rerere.rikkahub.data.model.localFileUrls
 import me.rerere.rikkahub.data.model.replaceUserRegexes
 import me.rerere.rikkahub.data.model.selectBranch
@@ -87,6 +91,9 @@ import java.util.Locale
 import kotlin.uuid.Uuid
 
 private const val TAG = "ChatService"
+
+/** 生成期间的节流落库间隔：进程崩溃/被杀时，已生成的内容最多丢掉这个时长的尾巴 */
+private const val GENERATION_PERSIST_INTERVAL_MS = 1_500L
 
 data class ChatError(
     val id: Uuid = Uuid.random(),
@@ -293,7 +300,13 @@ class ChatService(
         // settingsFlow 在启动初期还是占位值，固定配置必须基于真实设置
         val bound = conversation.bindConfig(settingsStore.awaitLoaded())
         if (bound !== conversation) conversationRepo.updateConversationConfig(bound)
-        return bound
+        // 进程崩溃/被杀可能留下思考未收尾的消息（生成中的内容靠生成期间的节流落库保住），
+        // 加载时统一收尾，避免一直显示"思考中"。只改内存，下次落库自然固化。
+        return bound.copy(
+            messageNodes = bound.messageNodes.map { node ->
+                node.copy(messages = node.messages.map { it.finishReasoning() })
+            }
+        )
     }
 
     /**
@@ -624,6 +637,9 @@ class ChatService(
 
             val (request, hooks) = requestFactory.createAgent(turn, history, session.processingStatus)
             var finishReason: AgentFinishReason? = null
+            // 生成期间的节流落库：取消和失败由 finishGeneration 兜底，进程崩溃/被杀时 finally 不会执行，
+            // 这里按间隔把已收到的内容写进数据库，崩溃后重启最多丢掉一个间隔的尾巴。
+            var lastPersistAt = 0L
             try {
                 runAgent(request, hooks).flowOn(Dispatchers.IO).collect { event ->
                     when (event) {
@@ -632,6 +648,13 @@ class ChatService(
                             session.processingStatus.value = null
                             session.update { it.upsertMessage(replyNodeId, event.message) }
                             session.replyMessageId.value = event.message.id
+                            val now = System.currentTimeMillis()
+                            if (now - lastPersistAt >= GENERATION_PERSIST_INTERVAL_MS) {
+                                lastPersistAt = now
+                                // 落库失败不拖垮生成，结束时还有一次兜底保存
+                                runCatching { session.flush() }
+                                    .onFailure { Log.e(TAG, "runTurn: periodic persist failed", it) }
+                            }
                             // 通知等边缘副作用由 ChatNotificationManager 消费；
                             // tryEmit 不挂起，事件丢失只影响单次通知更新，不能反压生成链
                             appEventBus.tryEmit(
@@ -673,6 +696,7 @@ class ChatService(
                 sessionManager.launchWithSession(conversationId) { generateTitle(conversationId) }
                 sessionManager.launchWithSession(conversationId) { generateSuggestion(conversationId) }
                 if (turn.assistant.enableMemory) memoryConsolidationScheduler.onTurnFinished(session.state.value)
+                sessionManager.launchWithSession(conversationId) { maybeAutoCompress(conversationId) }
             }
             return TurnResult.Finished(reason)
         } catch (e: CancellationException) {
@@ -815,6 +839,7 @@ class ChatService(
         conversationId: Uuid,
         additionalPrompt: String,
         keepRecentMessages: Int = 0,
+        modelId: Uuid? = null,
     ): Result<Unit> = runCatching {
         withLoadedSession<Unit>(conversationId) { session ->
             // 生成中的回复还没写完，压缩不到它，检查点也不能插到它前面
@@ -843,8 +868,19 @@ class ChatService(
                 node.currentMessage.getTools().any { it.isPending || it.canResumeExecution }
             }) { context.getString(R.string.chat_page_compress_handle_pending_tools) }
 
-            // 必须和对话用同一个模型、同一套请求组装，才能命中提示词缓存
-            val turn = requestFactory.createContext(settingsStore.awaitLoaded(), conversation)
+            // 默认必须和对话用同一个模型、同一套请求组装，才能命中提示词缓存；
+            // 用户也可以另外指定压缩模型，代价是放弃缓存命中
+            val settings = settingsStore.awaitLoaded()
+            val baseTurn = requestFactory.createContext(settings, conversation)
+            val turn = if (modelId != null && modelId != baseTurn.model.id) {
+                val model = settings.findModelById(modelId)
+                    ?: throw IllegalStateException(context.getString(R.string.chat_page_compress_model_not_found))
+                val provider = model.findProvider(settings.providers)
+                    ?: throw IllegalStateException(context.getString(R.string.chat_page_compress_model_not_found))
+                baseTurn.copy(model = model, providerSetting = provider)
+            } else {
+                baseTurn
+            }
             val summary = requestFactory.generateCompressionSummary(
                 turn = turn,
                 messages = conversation.currentMessages.take(endIndex),
@@ -865,6 +901,40 @@ class ChatService(
                 updated.copy(chatSuggestions = emptyList())
             }
             session.flush()
+        }
+    }
+
+    /**
+     * 自动压缩：一轮结束后检查上下文占用，达到设置的比例就按压缩设置自动压缩。
+     *
+     * 刚压缩过的会话（检查点是最后一条）占用的上下文用量为空，不会重复触发；消息队列里还有
+     * 排队的消息时跳过，等下一轮结束再检查；失败只记日志，下轮对话占用仍超阈值时会再试。
+     */
+    private suspend fun maybeAutoCompress(conversationId: Uuid) {
+        val settings = settingsStore.awaitLoaded()
+        val config = settings.compressSetting
+        if (!config.autoCompress) return
+        val session = sessionManager.get(conversationId) ?: return
+        if (session.isGenerating) return
+        val conversation = session.state.value
+        // 限制了上下文消息数的是滚动上下文，旧消息会自动移出，不需要压缩（同聊天页入口的显隐条件）
+        if (settings.getAssistantOf(conversation).contextMessageLimit > 0) return
+        val tokens = conversation.lastContextTokens() ?: return
+        val model = settings.getChatModelOf(conversation) ?: return
+        if (model.contextLength <= 0) return
+        val percent = tokens.toDouble() / model.contextLength * 100
+        if (percent < config.thresholdPercent) return
+        Log.i(
+            TAG,
+            "maybeAutoCompress: usage ${percent.toInt()}% reached ${config.thresholdPercent}%, compressing $conversationId"
+        )
+        compressConversation(
+            conversationId = conversationId,
+            additionalPrompt = config.additionalPrompt,
+            keepRecentMessages = config.keepRecentMessages,
+            modelId = config.modelId,
+        ).onFailure {
+            Log.w(TAG, "maybeAutoCompress: failed to compress $conversationId", it)
         }
     }
 
