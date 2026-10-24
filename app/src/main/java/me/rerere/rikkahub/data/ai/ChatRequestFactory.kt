@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.ai
 
 import android.content.Context
 import android.util.Log
+import java.io.IOException
 import kotlinx.coroutines.flow.MutableStateFlow
 import me.rerere.ai.agent.AgentHooks
 import me.rerere.ai.agent.AgentRequest
@@ -61,7 +62,7 @@ private const val TAG = "ChatRequestFactory"
  * 正常对话和压缩用同一份上下文组装请求，系统提示词、工具定义、参数和 sessionId 都相同，
  * 压缩请求的前缀才能和上一轮对话一致，命中提示词缓存。
  */
-class ChatTurnContext(
+data class ChatTurnContext(
     val settings: Settings,
     val assistant: Assistant,
     val model: Model,
