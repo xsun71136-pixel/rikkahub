@@ -7,6 +7,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
+import me.rerere.ai.ui.ImageGenerationItem
 import me.rerere.ai.ui.StreamChunk
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.util.MultiKeyStateCenter
@@ -109,8 +110,8 @@ class MultiKeyRaceProvider<T : ProviderSetting.ApiKey>(
      * 获胜后中途失败时已经发出的内容收不回，错误直接抛给上层（重试会整步重来）。
      */
     private fun raceFlows(
-        first: () -> Flow<StreamChunk>,
-        second: () -> Flow<StreamChunk>,
+        first: suspend () -> Flow<StreamChunk>,
+        second: suspend () -> Flow<StreamChunk>,
     ): Flow<StreamChunk> = channelFlow {
         val winner = AtomicInteger(-1)
         val failures = AtomicInteger(0)
@@ -118,7 +119,7 @@ class MultiKeyRaceProvider<T : ProviderSetting.ApiKey>(
         var jobFirst: Job? = null
         var jobSecond: Job? = null
 
-        suspend fun runLeg(index: Int, factory: () -> Flow<StreamChunk>) {
+        suspend fun runLeg(index: Int, factory: suspend () -> Flow<StreamChunk>) {
             try {
                 factory().collect { chunk ->
                     winner.compareAndSet(-1, index)
