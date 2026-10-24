@@ -76,6 +76,7 @@ data class Settings(
     val modeInjections: List<PromptInjection.ModeInjection> = DEFAULT_MODE_INJECTIONS,
     val lorebooks: List<Lorebook> = emptyList(),
     val quickMessages: List<QuickMessage> = emptyList(),
+    val compressSetting: CompressSetting = CompressSetting(),
     val webServerEnabled: Boolean = false,
     val webServerPort: Int = 8080,
     val webServerJwtEnabled: Boolean = false,
@@ -97,6 +98,58 @@ data class NetworkSetting(
     val proxyUsername: String = "",
     val proxyPassword: String = "",
     val enableAutoRetry: Boolean = true,
+    val autoRetry: AutoRetrySetting = AutoRetrySetting(),
+)
+
+/**
+ * 自动重试配置。
+ *
+ * [enableAutoRetry]（NetworkSetting）是总开关；custom = false 时用标准策略
+ * （3 次、1s/2s/4s、无抖动），true 时用这里的自定义参数。
+ */
+@Serializable
+data class AutoRetrySetting(
+    val custom: Boolean = false,
+    val maxRetries: Int = 3,
+    val initialDelayMs: Long = 1000,
+    val backoffFactor: Float = 2f,
+    val maxDelayMs: Long = 30000,
+    // 每次等待在 ±20% 内浮动
+    val jitter: Boolean = true,
+    // 超时、连接断开、读写中断这类网络故障
+    val retryOnNetworkError: Boolean = true,
+    val retryOnCodes: List<Int> = DEFAULT_RETRY_CODES,
+    val retryOnKeywords: List<String> = DEFAULT_RETRY_KEYWORDS,
+    val stopKeywords: List<String> = DEFAULT_STOP_KEYWORDS,
+) {
+    companion object {
+        val DEFAULT_RETRY_CODES = listOf(408, 425, 429, 500, 502, 503, 504, 529)
+        val DEFAULT_RETRY_KEYWORDS = listOf(
+            "并发", "稍后", "重试", "访问量过大", "繁忙", "限流",
+            "rate limit", "too many requests", "overloaded", "try again", "timeout", "超时",
+        )
+        val DEFAULT_STOP_KEYWORDS = listOf(
+            "余额", "不足", "额度", "欠费", "balance", "insufficient",
+            "quota", "invalid api key", "unauthorized", "permission", "未实名",
+        )
+    }
+}
+
+/**
+ * 压缩对话历史配置。设置会记住，下次打开压缩对话框自动沿用。
+ *
+ * modelId 为空（null）表示跟随对话模型：压缩请求和正常对话用同一个模型组装，前缀一致才能命中
+ * 提示词缓存；指定其他模型是用户自己的选择，放弃缓存命中。
+ */
+@Serializable
+data class CompressSetting(
+    val autoCompress: Boolean = false,
+    // 占用达到上下文窗口的这个百分比时自动压缩
+    val thresholdPercent: Int = 80,
+    // 保留最近的消息数，不参与压缩；0 = 压缩全部
+    val keepRecentMessages: Int = 0,
+    val modelId: Uuid? = null,
+    val additionalPrompt: String = "",
 )
 
 @Serializable
