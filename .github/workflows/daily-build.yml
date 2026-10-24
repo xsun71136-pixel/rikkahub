@@ -4,11 +4,11 @@ on:
   # 每天 UTC 09:00、18:00 触发（北京时间 17:00、次日 02:00）
   schedule:
     - cron: '0 9,18 * * *'
-  # 也支持手动触发
+  # 允许手动触发
   workflow_dispatch:
 
 jobs:
-  # 检查过去 24 小时内是否有新提交，没有则跳过构建，避免重复打包
+  # 检查过去 24 小时是否有新提交，避免无变化时也重复构建、占用额度
   check:
     runs-on: ubuntu-latest
     outputs:
@@ -18,7 +18,7 @@ jobs:
       - name: Check for recent commits
         id: check
         run: |
-          # 手动触发时无条件构建
+          # 手动触发时强制构建
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "should_build=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -36,7 +36,7 @@ jobs:
     if: needs.check.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # 发布 Release 需要写权限
+      contents: write  # 创建 Release 需要写权限
 
     steps:
       - uses: actions/checkout@v4
@@ -51,7 +51,7 @@ jobs:
           distribution: 'jetbrains'
           java-version: '21'
         env:
-          # jetbrains 安装器通过 GitHub API 查询版本，带上 token 避免被限流
+          # jetbrains 镜像需要走 GitHub API 下载，带上 token 避免限流
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # web 模块的 preBuild 会执行 `pnpm run build` 构建前端，必须准备好 Node + pnpm
@@ -88,27 +88,37 @@ jobs:
           # 写入签名配置到local.properties
           echo "${{ secrets.SIGNING_CONFIG }}" > local.properties
 
-          # 写入Google Services配置
-          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
+          # 写入Google Services配置（自动识别原始 JSON 或 base64 编码）
+          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > /tmp/gs_secret.txt
+          if grep -q '{' /tmp/gs_secret.txt; then
+            cp /tmp/gs_secret.txt app/google-services.json
+          else
+            base64 -d /tmp/gs_secret.txt > app/google-services.json
+          fi
+          # 校验：google-services.json 必须是以 { 开头的合法 JSON
+          if [ "$(head -c 1 app/google-services.json)" != "{" ]; then
+            echo "::error::GOOGLE_SERVICES_JSON 内容不是有效 JSON，请检查仓库 secret（支持原始 JSON 或 base64 两种格式）"
+            exit 1
+          fi
 
       - name: Gradle Build
         run: |
           chmod +x gradlew
           ./gradlew assembleGithubRelease
 
-      # 把 APK 直接发布为 Prerelease，用户点链接即可下载单个 apk，无需登录、无需解压
+      # 把 APK 发布到一个 Prerelease，用日期时间命名以下载多个 apk，避免覆盖、避免误下
       - name: Publish nightly prerelease
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: nightly            # 固定 tag，每晚覆盖同一个「最新每日构建」
+          tag_name: nightly            # 固定 tag，反复覆盖同一个「最新构建」
           name: Nightly Build
           prerelease: true
           body: |
-            自动每日构建（commit `${{ github.sha }}`）
+            最新构建（commit `${{ github.sha }}`）
 
-            > ⚠️ 开发版本，可能不稳定，仅供测试。
-          # mapping.txt 用于还原混淆后的崩溃堆栈，所有 ABI 的 APK 共用这一份
+            > ⚠️ 开发测试版，可能存在bug，仅供测试。
+          # mapping.txt 用于还原混淆后的堆栈，排查崩溃时与各 ABI 的 APK 一起下载
           files: |
             app/build/outputs/apk/github/release/*.apk
             app/build/outputs/mapping/githubRelease/mapping.txt
