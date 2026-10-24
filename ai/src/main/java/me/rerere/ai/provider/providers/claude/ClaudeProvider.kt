@@ -2,6 +2,7 @@ package me.rerere.ai.provider.providers.claude
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
@@ -60,14 +61,17 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.handleTextGenerationResult
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
+import me.rerere.ai.util.HttpException
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.configureSessionHeaders
 import me.rerere.ai.util.encodeBase64
+import me.rerere.ai.util.httpError
 import me.rerere.ai.util.json
 import me.rerere.ai.util.mergeCustomBody
 import me.rerere.ai.util.mergeCustomHeaders
 import me.rerere.ai.util.parseErrorDetail
+import me.rerere.ai.util.reportKeyResult
 import me.rerere.ai.util.stringSafe
 import me.rerere.common.http.await
 import me.rerere.common.http.jsonPrimitiveOrNull
@@ -234,11 +238,11 @@ private fun StreamChunk.maxClaudeServerToolIndex(): Int? {
 private fun ServerToolMetadata.maxIndex(): Int? = listOfNotNull(callIndex, resultIndex).maxOrNull()
 
 class ClaudeProvider(private val client: OkHttpClient, context: Context? = null) : Provider<ProviderSetting.Claude> {
-    private val keyRoulette = if (context != null) KeyRoulette.lru(context) else KeyRoulette.default()
+    private val keyRoulette = if (context != null) KeyRoulette.multiKey(context) else KeyRoulette.default()
 
     override suspend fun getQuota(providerSetting: ProviderSetting.Claude): ProviderQuota? =
         client.runQuotaQuery(providerSetting) {
-            keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())
+            keyRoulette.next(providerSetting)
         }
 
     override suspend fun listModels(providerSetting: ProviderSetting.Claude): List<Model> =
@@ -246,7 +250,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
             val request = Request.Builder()
                 .url("${providerSetting.baseUrl}/models")
                 .headers(providerSetting.mergeCustomHeaders())
-                .addHeader("x-api-key", keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString()))
+                .addHeader("x-api-key", keyRoulette.next(providerSetting))
                 .addHeader("anthropic-version", ANTHROPIC_VERSION)
                 .get()
                 .build()
@@ -294,41 +298,49 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
         messages: List<UIMessage>,
         params: TextGenerationParams,
     ): TextGenerationResult {
-        val requestBody = buildMessageRequest(providerSetting, messages, params)
-        val request = Request.Builder()
-            .url("${providerSetting.baseUrl}/messages")
-            .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
-            .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
-            .addHeader("x-api-key", keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString()))
-            .addHeader("anthropic-version", ANTHROPIC_VERSION)
-            .configureReferHeaders(providerSetting.baseUrl)
-            .configureSessionHeaders(providerSetting.baseUrl, params.sessionId)
-            .build()
+        val key = keyRoulette.next(providerSetting)
+        try {
+            val requestBody = buildMessageRequest(providerSetting, messages, params)
+            val request = Request.Builder()
+                .url("${providerSetting.baseUrl}/messages")
+                .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
+                .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
+                .addHeader("x-api-key", key)
+                .addHeader("anthropic-version", ANTHROPIC_VERSION)
+                .configureReferHeaders(providerSetting.baseUrl)
+                .configureSessionHeaders(providerSetting.baseUrl, params.sessionId)
+                .build()
 
-        Log.i(TAG, "generateText: ${json.encodeToString(requestBody)}")
+            Log.i(TAG, "generateText: ${json.encodeToString(requestBody)}")
 
-        val response = client.newCall(request).await()
-        if (!response.isSuccessful) {
-            throw Exception("Failed to get response: ${response.code} ${response.body?.string()}")
+            val response = client.newCall(request).await()
+            if (!response.isSuccessful) {
+                throw httpError(response, "Failed to get response")
+            }
+
+            val bodyStr = response.body?.string() ?: ""
+            val bodyJson = json.parseToJsonElement(bodyStr).jsonObject
+
+            // 从 JsonObject 中提取必要的信息
+            val id = bodyJson["id"]?.jsonPrimitive?.contentOrNull ?: ""
+            val model = bodyJson["model"]?.jsonPrimitive?.contentOrNull ?: ""
+            val content = bodyJson["content"]?.jsonArray ?: JsonArray(emptyList())
+            val stopReason = bodyJson["stop_reason"]?.jsonPrimitive?.contentOrNull ?: "unknown"
+            val usage = parseTokenUsage(bodyJson)
+
+            return TextGenerationResult(
+                id = id,
+                model = model,
+                message = parseMessage(content),
+                finishReason = stopReason,
+                usage = usage
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            keyRoulette.reportFailure(providerSetting, key, e)
+            throw e
         }
-
-        val bodyStr = response.body?.string() ?: ""
-        val bodyJson = json.parseToJsonElement(bodyStr).jsonObject
-
-        // 从 JsonObject 中提取必要的信息
-        val id = bodyJson["id"]?.jsonPrimitive?.contentOrNull ?: ""
-        val model = bodyJson["model"]?.jsonPrimitive?.contentOrNull ?: ""
-        val content = bodyJson["content"]?.jsonArray ?: JsonArray(emptyList())
-        val stopReason = bodyJson["stop_reason"]?.jsonPrimitive?.contentOrNull ?: "unknown"
-        val usage = parseTokenUsage(bodyJson)
-
-        return TextGenerationResult(
-            id = id,
-            model = model,
-            message = parseMessage(content),
-            finishReason = stopReason,
-            usage = usage
-        )
     }
 
     override suspend fun streamText(
@@ -343,13 +355,15 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
         providerSetting: ProviderSetting.Claude,
         messages: List<UIMessage>,
         params: TextGenerationParams,
-    ): Flow<StreamChunk> = callbackFlow {
+    ): Flow<StreamChunk> {
+        val key = keyRoulette.next(providerSetting)
+        return callbackFlow {
         val requestBody = buildMessageRequest(providerSetting, messages, params, stream = true)
         val request = Request.Builder()
             .url("${providerSetting.baseUrl}/messages")
             .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
             .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
-            .addHeader("x-api-key", keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString()))
+            .addHeader("x-api-key", key)
             .addHeader("anthropic-version", ANTHROPIC_VERSION)
             .addHeader("Content-Type", "application/json")
             .configureReferHeaders(providerSetting.baseUrl)
@@ -400,12 +414,16 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
                     if (!bodyRaw.isNullOrBlank()) {
                         val bodyElement = Json.parseToJsonElement(bodyRaw)
                         Log.i(TAG, "Error response: $bodyElement")
-                        exception = bodyElement.parseErrorDetail()
+                        exception = bodyElement.parseErrorDetail(response?.code)
                     }
                 } catch (e: Throwable) {
                     Log.w(TAG, "onFailure: failed to parse from $bodyRaw")
                     e.printStackTrace()
                 } finally {
+                    // 没有可读错误体的 HTTP 错误也要带上状态码，自动重试和多 Key 暂停规则都靠它匹配
+                    if (exception == null && response != null && !response.isSuccessful) {
+                        exception = HttpException("HTTP ${response.code}", response.code)
+                    }
                     close(exception)
                 }
             }
@@ -423,7 +441,9 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
             eventSource.cancel()
         }
         // trySend 在缓冲满时会静默丢弃 delta，导致回复中间缺字 (#1295)，因此缓冲必须无界
-    }.buffer(Channel.UNLIMITED).flowOn(Dispatchers.IO)
+        }.buffer(Channel.UNLIMITED).flowOn(Dispatchers.IO)
+            .reportKeyResult(keyRoulette, providerSetting, key)
+    }
 
     private fun buildMessageRequest(
         providerSetting: ProviderSetting.Claude,
