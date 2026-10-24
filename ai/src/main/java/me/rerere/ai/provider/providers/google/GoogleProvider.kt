@@ -2,6 +2,7 @@ package me.rerere.ai.provider.providers.google
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
@@ -10,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
@@ -56,10 +58,12 @@ import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
+import me.rerere.ai.util.HttpException
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.configureSessionHeaders
 import me.rerere.ai.util.encodeBase64
+import me.rerere.ai.util.httpError
 import me.rerere.ai.util.json
 import me.rerere.ai.util.mergeCustomBody
 import me.rerere.ai.util.mergeCustomHeaders
@@ -84,7 +88,7 @@ import kotlin.uuid.Uuid
 private const val TAG = "GoogleProvider"
 
 class GoogleProvider(private val client: OkHttpClient, context: Context? = null) : Provider<ProviderSetting.Google> {
-    private val keyRoulette = if (context != null) KeyRoulette.lru(context) else KeyRoulette.default()
+    private val keyRoulette = if (context != null) KeyRoulette.multiKey(context) else KeyRoulette.default()
     private val serviceAccountTokenProvider by lazy {
         ServiceAccountTokenProvider(client)
     }
@@ -92,7 +96,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
 
     override suspend fun getQuota(providerSetting: ProviderSetting.Google): ProviderQuota? =
         client.runQuotaQuery(providerSetting) {
-            keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())
+            keyRoulette.next(providerSetting)
         }
 
     // Interactions API 目前只有 Gemini Developer API 提供，Vertex AI 仍走 generateContent
@@ -110,7 +114,8 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
 
     private suspend fun transformRequest(
         providerSetting: ProviderSetting.Google,
-        request: Request
+        request: Request,
+        onKeyUsed: ((String) -> Unit)? = null,
     ): Request {
         return if (providerSetting.vertexAI && providerSetting.useServiceAccount) {
             val accessToken = serviceAccountTokenProvider.fetchAccessToken(
@@ -121,7 +126,8 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                 .addHeader("Authorization", "Bearer $accessToken")
                 .build()
         } else {
-            val key = keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())
+            val key = keyRoulette.next(providerSetting)
+            onKeyUsed?.invoke(key)
             if (providerSetting.vertexAI) {
                 request.newBuilder()
                     .url(request.url.newBuilder().addQueryParameter("key", key).build())
@@ -183,47 +189,56 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
             return@withContext interactionsAPI.generateText(providerSetting, messages, params)
         }
 
-        val requestBody = buildCompletionRequestBody(messages, params)
+        var usedKey: String? = null
+        try {
+            val requestBody = buildCompletionRequestBody(messages, params)
 
-        val url = buildUrl(
-            providerSetting = providerSetting,
-            path = if (providerSetting.vertexAI) {
-                "publishers/google/models/${params.model.modelId}:generateContent"
-            } else {
-                "models/${params.model.modelId}:generateContent"
+            val url = buildUrl(
+                providerSetting = providerSetting,
+                path = if (providerSetting.vertexAI) {
+                    "publishers/google/models/${params.model.modelId}:generateContent"
+                } else {
+                    "models/${params.model.modelId}:generateContent"
+                }
+            )
+
+            val request = transformRequest(
+                providerSetting = providerSetting,
+                onKeyUsed = { usedKey = it },
+                request = Request.Builder()
+                    .url(url)
+                    .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
+                    .configureSessionHeaders(url.toString(), params.sessionId)
+                    .post(
+                        json.encodeToString(requestBody).toRequestBody("application/json".toMediaType())
+                    )
+                    .configureReferHeaders(providerSetting.baseUrl)
+                    .build()
+            )
+
+            val response = client.newCall(request).await()
+            if (!response.isSuccessful) {
+                throw httpError(response, "Failed to get response")
             }
-        )
 
-        val request = transformRequest(
-            providerSetting = providerSetting,
-            request = Request.Builder()
-                .url(url)
-                .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
-                .configureSessionHeaders(url.toString(), params.sessionId)
-                .post(
-                    json.encodeToString(requestBody).toRequestBody("application/json".toMediaType())
-                )
-                .configureReferHeaders(providerSetting.baseUrl)
-                .build()
-        )
+            val bodyStr = response.body?.string() ?: ""
+            val bodyJson = json.parseToJsonElement(bodyStr).jsonObject
 
-        val response = client.newCall(request).await()
-        if (!response.isSuccessful) {
-            throw Exception("Failed to get response: ${response.code} ${response.body?.string()}")
+            val candidate = bodyJson["candidates"]?.jsonArray?.firstOrNull()?.jsonObject
+                ?: error("No candidates in response")
+            TextGenerationResult(
+                id = Uuid.random().toString(),
+                model = params.model.modelId,
+                message = parseMessage(candidate),
+                finishReason = candidate["finishReason"]?.jsonPrimitive?.contentOrNull,
+                usage = parseUsageMeta(bodyJson["usageMetadata"] as? JsonObject),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            usedKey?.let { keyRoulette.reportFailure(providerSetting, it, e) }
+            throw e
         }
-
-        val bodyStr = response.body?.string() ?: ""
-        val bodyJson = json.parseToJsonElement(bodyStr).jsonObject
-
-        val candidate = bodyJson["candidates"]?.jsonArray?.firstOrNull()?.jsonObject
-            ?: error("No candidates in response")
-        TextGenerationResult(
-            id = Uuid.random().toString(),
-            model = params.model.modelId,
-            message = parseMessage(candidate),
-            finishReason = candidate["finishReason"]?.jsonPrimitive?.contentOrNull,
-            usage = parseUsageMeta(bodyJson["usageMetadata"] as? JsonObject),
-        )
     }
 
     override suspend fun streamText(
@@ -240,7 +255,9 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
         providerSetting: ProviderSetting.Google,
         messages: List<UIMessage>,
         params: TextGenerationParams,
-    ): Flow<StreamChunk> = callbackFlow {
+    ): Flow<StreamChunk> {
+        var usedKey: String? = null
+        return callbackFlow {
         val requestBody = buildCompletionRequestBody(messages, params)
 
         val url = buildUrl(
@@ -254,6 +271,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
 
         val request = transformRequest(
             providerSetting = providerSetting,
+            onKeyUsed = { usedKey = it },
             request = Request.Builder()
                 .url(url)
                 .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
@@ -314,13 +332,14 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                             val bodyElement = json.parseToJsonElement(bodyStr)
                             println(bodyElement)
                             if (bodyElement is JsonObject) {
-                                exception = Exception(
+                                exception = HttpException(
                                     bodyElement["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content
-                                        ?: "unknown"
+                                        ?: "unknown",
+                                    response.code,
                                 )
                             }
                         } else {
-                            exception = Exception("Unknown error: ${response.code}")
+                            exception = HttpException("Unknown error: ${response.code}", response.code)
                         }
                     }
                 } catch (e: Throwable) {
@@ -345,7 +364,19 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
             eventSource.cancel()
         }
         // trySend 在缓冲满时会静默丢弃 delta，导致回复中间缺字 (#1295)，因此缓冲必须无界
-    }.buffer(Channel.UNLIMITED).flowOn(Dispatchers.IO)
+        }.buffer(Channel.UNLIMITED).flowOn(Dispatchers.IO)
+            // 冷流：密钥要等流被收集时才在 transformRequest 里选出，上报必须读当时的 usedKey
+            .onCompletion { cause ->
+                val key = usedKey
+                if (key != null) {
+                    when {
+                        cause == null -> keyRoulette.reportSuccess(providerSetting, key)
+                        cause is CancellationException -> Unit
+                        else -> keyRoulette.reportFailure(providerSetting, key, cause)
+                    }
+                }
+            }
+    }
 
     private fun buildCompletionRequestBody(
         messages: List<UIMessage>,
