@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import me.rerere.ai.agent.AgentHooks
 import me.rerere.ai.agent.AgentRequest
 import me.rerere.ai.agent.RetryPolicy
+import me.rerere.ai.agent.RetryableResponseException
 import me.rerere.ai.agent.StepRequest
 import me.rerere.ai.agent.withRetry
 import me.rerere.ai.core.ReasoningLevel
@@ -16,6 +17,7 @@ import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.limitContext
+import me.rerere.ai.util.HttpException
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.prompts.buildMemoryPrompt
 import me.rerere.rikkahub.data.ai.tools.ChatToolFactory
@@ -35,6 +37,7 @@ import me.rerere.rikkahub.data.ai.transformers.onGenerationFinish
 import me.rerere.rikkahub.data.ai.transformers.transformThinkTags
 import me.rerere.rikkahub.data.ai.transformers.transforms
 import me.rerere.rikkahub.data.ai.transformers.visualTransforms
+import me.rerere.rikkahub.data.datastore.AutoRetrySetting
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.model.Assistant
@@ -46,6 +49,8 @@ import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.repository.memoryId
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 private const val TAG = "ChatRequestFactory"
@@ -298,5 +303,61 @@ internal fun backgroundTextGenerationParams(
     sessionId = sessionId.toString(),
 )
 
-internal fun Settings.retryPolicy() =
-    if (networkSetting.enableAutoRetry) RetryPolicy.NETWORK else RetryPolicy.NONE
+/**
+ * 按「自动重试」设置构建重试策略。
+ *
+ * 重试条件（满足其一）：可重试状态码、错误文本命中重试关键字、[AutoRetrySetting.retryOnNetworkError]
+ * 开启时的网络故障（IOException）、以及请求"成功"但响应内容命中重试关键字（网关用 200 返回繁忙提示）。
+ * 停止关键字优先于一切：错误或响应内容命中它就不再重试（余额不足这类错误重试没意义）。
+ */
+internal fun Settings.retryPolicy(): RetryPolicy {
+    if (!networkSetting.enableAutoRetry) return RetryPolicy.NONE
+    val config = networkSetting.autoRetry
+    // 标准策略固定 3 次；自定义策略下次数为 0 才是不重试
+    if (config.custom && config.maxRetries <= 0) return RetryPolicy.NONE
+
+    val retryCodes = config.retryOnCodes.toSet()
+    val retryKeywords = config.retryOnKeywords.filter { it.isNotBlank() }
+    val stopKeywords = config.stopKeywords.filter { it.isNotBlank() }
+
+    fun String.containsAny(keywords: List<String>): Boolean =
+        keywords.any { contains(it, ignoreCase = true) }
+
+    fun Throwable.errorText(): String = buildString {
+        if (this@errorText is HttpException) code?.let { append(it).append(' ') }
+        message?.let { append(it) }
+    }
+
+    fun matchesCode(text: String, code: Int?): Boolean {
+        if (code != null && code in retryCodes) return true
+        // 非 HttpException 的错误（比如包装过的异常）退化为文本匹配
+        return retryCodes.any { Regex("\\b$it\\b").containsMatchIn(text) }
+    }
+
+    val policy = RetryPolicy(
+        maxRetries = if (config.custom) config.maxRetries else 3,
+        initialDelay = if (config.custom) config.initialDelayMs.milliseconds else 1.seconds,
+        maxDelay = if (config.custom) config.maxDelayMs.milliseconds else 30.seconds,
+        backoffFactor = if (config.custom) config.backoffFactor.toDouble() else 2.0,
+        jitter = config.custom && config.jitter,
+        retryOn = lit@{ error ->
+            val text = error.errorText()
+            // 停止关键字优先：余额不足、密钥无效这类错误重试没意义
+            if (text.containsAny(stopKeywords)) return@lit false
+            when {
+                error is RetryableResponseException -> true
+                error is IOException -> config.retryOnNetworkError
+                error is HttpException -> matchesCode(text, error.code) || text.containsAny(retryKeywords)
+                else -> matchesCode(text, null) || text.containsAny(retryKeywords)
+            }
+        },
+        responseRetryCheck = check@{ message ->
+            val text = message.toText()
+            if (text.isBlank()) return@check null
+            if (text.containsAny(stopKeywords)) return@check null
+            retryKeywords.firstOrNull { text.contains(it, ignoreCase = true) }
+                ?.let { "响应内容命中重试关键字：$it" }
+        },
+    )
+    return policy
+}
