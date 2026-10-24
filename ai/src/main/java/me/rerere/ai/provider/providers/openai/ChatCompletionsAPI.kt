@@ -1,6 +1,7 @@
 package me.rerere.ai.provider.providers.openai
 
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
@@ -48,14 +49,17 @@ import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
+import me.rerere.ai.util.HttpException
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.configureSessionHeaders
 import me.rerere.ai.util.encodeBase64
+import me.rerere.ai.util.httpError
 import me.rerere.ai.util.json
 import me.rerere.ai.util.mergeCustomBody
 import me.rerere.ai.util.mergeCustomHeaders
 import me.rerere.ai.util.parseErrorDetail
+import me.rerere.ai.util.reportKeyResult
 import me.rerere.ai.util.stringSafe
 import me.rerere.common.http.await
 import me.rerere.common.http.jsonArrayOrNull
@@ -83,74 +87,84 @@ class ChatCompletionsAPI(
         messages: List<UIMessage>,
         params: TextGenerationParams,
     ): TextGenerationResult = withContext(Dispatchers.IO) {
-        val requestBody =
-            buildChatCompletionRequest(
-                messages = messages,
-                params = params,
-                providerSetting = providerSetting
+        val key = keyRoulette.next(providerSetting)
+        try {
+            val requestBody =
+                buildChatCompletionRequest(
+                    messages = messages,
+                    params = params,
+                    providerSetting = providerSetting
+                )
+
+            val request = Request.Builder()
+                .url("${providerSetting.baseUrl}${providerSetting.chatCompletionsPath}")
+                .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
+                .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
+                .addHeader("Authorization", "Bearer $key")
+                .configureReferHeaders(providerSetting.baseUrl)
+                .configureSessionHeaders(providerSetting.baseUrl, params.sessionId)
+                .build()
+
+            Log.i(TAG, "generateText: ${json.encodeToString(requestBody)}")
+
+            val response = client.newCall(request).await()
+            if (!response.isSuccessful) {
+                throw httpError(response, "Failed to get response")
+            }
+
+            val bodyStr = response.body?.string() ?: ""
+            val bodyJson = json.parseToJsonElement(bodyStr).jsonObject
+
+            // 从 JsonObject 中提取必要的信息
+            val id = bodyJson["id"]?.jsonPrimitive?.contentOrNull ?: ""
+            val model = bodyJson["model"]?.jsonPrimitive?.contentOrNull ?: ""
+            val choice = bodyJson["choices"]?.jsonArray?.get(0)?.jsonObject ?: error("choices is null")
+
+            val message = choice["message"]?.jsonObject ?: throw Exception("message is null")
+            val finishReason = choice["finish_reason"]
+                ?.jsonPrimitive
+                ?.content
+                ?: "unknown"
+            val usage = parseTokenUsage(bodyJson["usage"] as? JsonObject)
+
+            TextGenerationResult(
+                id = id,
+                model = model,
+                message = parseMessage(message),
+                finishReason = finishReason,
+                usage = usage
             )
-
-        val request = Request.Builder()
-            .url("${providerSetting.baseUrl}${providerSetting.chatCompletionsPath}")
-            .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
-            .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
-            .addHeader("Authorization", "Bearer ${keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())}")
-            .configureReferHeaders(providerSetting.baseUrl)
-            .configureSessionHeaders(providerSetting.baseUrl, params.sessionId)
-            .build()
-
-        Log.i(TAG, "generateText: ${json.encodeToString(requestBody)}")
-
-        val response = client.newCall(request).await()
-        if (!response.isSuccessful) {
-            throw Exception("Failed to get response: ${response.code} ${response.body?.string()}")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            keyRoulette.reportFailure(providerSetting, key, e)
+            throw e
         }
-
-        val bodyStr = response.body?.string() ?: ""
-        val bodyJson = json.parseToJsonElement(bodyStr).jsonObject
-
-        // 从 JsonObject 中提取必要的信息
-        val id = bodyJson["id"]?.jsonPrimitive?.contentOrNull ?: ""
-        val model = bodyJson["model"]?.jsonPrimitive?.contentOrNull ?: ""
-        val choice = bodyJson["choices"]?.jsonArray?.get(0)?.jsonObject ?: error("choices is null")
-
-        val message = choice["message"]?.jsonObject ?: throw Exception("message is null")
-        val finishReason = choice["finish_reason"]
-            ?.jsonPrimitive
-            ?.content
-            ?: "unknown"
-        val usage = parseTokenUsage(bodyJson["usage"] as? JsonObject)
-
-        TextGenerationResult(
-            id = id,
-            model = model,
-            message = parseMessage(message),
-            finishReason = finishReason,
-            usage = usage
-        )
     }
 
     override suspend fun streamText(
         providerSetting: ProviderSetting.OpenAI,
         messages: List<UIMessage>,
         params: TextGenerationParams,
-    ): Flow<StreamChunk> = callbackFlow {
-        val requestBody = buildChatCompletionRequest(
-            messages = messages,
-            params = params,
-            providerSetting = providerSetting,
-            stream = true,
-        )
+    ): Flow<StreamChunk> {
+        val key = keyRoulette.next(providerSetting)
+        return callbackFlow {
+            val requestBody = buildChatCompletionRequest(
+                messages = messages,
+                params = params,
+                providerSetting = providerSetting,
+                stream = true,
+            )
 
-        val request = Request.Builder()
-            .url("${providerSetting.baseUrl}${providerSetting.chatCompletionsPath}")
-            .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
-            .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
-            .addHeader("Authorization", "Bearer ${keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())}")
-            .addHeader("Content-Type", "application/json")
-            .configureReferHeaders(providerSetting.baseUrl)
-            .configureSessionHeaders(providerSetting.baseUrl, params.sessionId)
-            .build()
+            val request = Request.Builder()
+                .url("${providerSetting.baseUrl}${providerSetting.chatCompletionsPath}")
+                .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
+                .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
+                .addHeader("Authorization", "Bearer $key")
+                .addHeader("Content-Type", "application/json")
+                .configureReferHeaders(providerSetting.baseUrl)
+                .configureSessionHeaders(providerSetting.baseUrl, params.sessionId)
+                .build()
 
         Log.i(TAG, "streamText: ${json.encodeToString(requestBody)}")
 
@@ -195,7 +209,7 @@ class ChatCompletionsAPI(
                     if (!bodyRaw.isNullOrBlank()) {
                         val bodyElement = Json.parseToJsonElement(bodyRaw)
                         println(bodyElement)
-                        exception = bodyElement.parseErrorDetail()
+                        exception = bodyElement.parseErrorDetail(response?.code)
                         Log.i(TAG, "onFailure: $exception")
                     }
                 } catch (e: Throwable) {
@@ -203,6 +217,10 @@ class ChatCompletionsAPI(
                     e.printStackTrace()
                     exception = e
                 } finally {
+                    // 没有可读错误体的 HTTP 错误也要带上状态码，自动重试和多 Key 暂停规则都靠它匹配
+                    if (exception == null && response != null && !response.isSuccessful) {
+                        exception = HttpException("HTTP ${response.code}", response.code)
+                    }
                     close(exception)
                 }
             }
@@ -220,7 +238,9 @@ class ChatCompletionsAPI(
             eventSource.cancel()
         }
         // trySend 在缓冲满时会静默丢弃 delta，导致回复中间缺字 (#1295)，因此缓冲必须无界
-    }.buffer(Channel.UNLIMITED).flowOn(Dispatchers.IO)
+        }.buffer(Channel.UNLIMITED).flowOn(Dispatchers.IO)
+            .reportKeyResult(keyRoulette, providerSetting, key)
+    }
 
     private fun buildChatCompletionRequest(
         messages: List<UIMessage>,
