@@ -50,10 +50,11 @@ import me.rerere.hugeicons.stroke.View
 import me.rerere.hugeicons.stroke.ViewOff
 import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.remote.toProxyOrNull
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
-import me.rerere.rikkahub.ui.components.ui.switchItem
+import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.plus
@@ -277,20 +278,23 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
+                val navController = LocalNavController.current
                 CardGroup {
-                    switchItem(
-                        checked = settings.networkSetting.enableAutoRetry,
-                        onCheckedChange = { enabled ->
-                            vm.updateSettings {
-                                it.copy(
-                                    networkSetting = it.networkSetting.copy(
-                                        enableAutoRetry = enabled,
-                                    ),
-                                )
-                            }
-                        },
+                    item(
+                        onClick = { navController.navigate(Screen.SettingPreferencesAutoRetry) },
                         supportingContent = {
-                            Text(stringResource(R.string.setting_page_preferences_network_auto_retry_desc))
+                            Text(
+                                stringResource(
+                                    when {
+                                        !settings.networkSetting.enableAutoRetry -> R.string.setting_auto_retry_state_off
+                                        settings.networkSetting.autoRetry.custom -> R.string.setting_auto_retry_state_on_custom
+                                        else -> R.string.setting_auto_retry_state_on_standard
+                                    }
+                                )
+                            )
+                        },
+                        trailingContent = {
+                            Icon(HugeIcons.ArrowRight01, contentDescription = null)
                         },
                         headlineContent = {
                             Text(stringResource(R.string.setting_page_preferences_network_auto_retry))
