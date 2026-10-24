@@ -1,6 +1,7 @@
 package me.rerere.ai.provider.providers.google
 
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
@@ -45,14 +46,17 @@ import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
+import me.rerere.ai.util.HttpException
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.configureSessionHeaders
 import me.rerere.ai.util.encodeBase64
+import me.rerere.ai.util.httpError
 import me.rerere.ai.util.json
 import me.rerere.ai.util.mergeCustomBody
 import me.rerere.ai.util.mergeCustomHeaders
 import me.rerere.ai.util.parseErrorDetail
+import me.rerere.ai.util.reportKeyResult
 import me.rerere.ai.util.stringSafe
 import me.rerere.common.http.await
 import me.rerere.common.http.jsonArrayOrNull
@@ -86,16 +90,24 @@ internal class InteractionsAPI(
         messages: List<UIMessage>,
         params: TextGenerationParams,
     ): TextGenerationResult = withContext(Dispatchers.IO) {
-        val requestBody = buildRequestBody(messages, params, stream = false)
-        val request = buildRequest(providerSetting, params, requestBody)
+        val key = keyRoulette.next(providerSetting)
+        try {
+            val requestBody = buildRequestBody(messages, params, stream = false)
+            val request = buildRequest(providerSetting, params, requestBody, key)
 
-        // await() waits for the response headers; reading the body can still block.
-        client.newCall(request).await().use { response ->
-            if (!response.isSuccessful) {
-                throw Exception("Failed to get response: ${response.code} ${response.body.string()}")
+            // await() waits for the response headers; reading the body can still block.
+            client.newCall(request).await().use { response ->
+                if (!response.isSuccessful) {
+                    throw httpError(response, "Failed to get response")
+                }
+                val bodyJson = json.parseToJsonElement(response.body.string()).jsonObject
+                parseInteraction(bodyJson, fallbackModel = params.model.modelId)
             }
-            val bodyJson = json.parseToJsonElement(response.body.string()).jsonObject
-            parseInteraction(bodyJson, fallbackModel = params.model.modelId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            keyRoulette.reportFailure(providerSetting, key, e)
+            throw e
         }
     }
 
@@ -103,9 +115,11 @@ internal class InteractionsAPI(
         providerSetting: ProviderSetting.Google,
         messages: List<UIMessage>,
         params: TextGenerationParams,
-    ): Flow<StreamChunk> = callbackFlow {
+    ): Flow<StreamChunk> {
+        val key = keyRoulette.next(providerSetting)
+        return callbackFlow {
         val requestBody = buildRequestBody(messages, params, stream = true)
-        val request = buildRequest(providerSetting, params, requestBody)
+        val request = buildRequest(providerSetting, params, requestBody, key)
 
         Log.i(TAG, "streamText: ${json.encodeToString(requestBody)}")
 
@@ -143,9 +157,9 @@ internal class InteractionsAPI(
                 val bodyRaw = response?.body?.stringSafe()
                 try {
                     if (!bodyRaw.isNullOrBlank()) {
-                        exception = json.parseToJsonElement(bodyRaw).parseErrorDetail()
+                        exception = json.parseToJsonElement(bodyRaw).parseErrorDetail(response?.code)
                     } else if (t == null && response != null) {
-                        exception = Exception("Unknown error: ${response.code}")
+                        exception = HttpException("Unknown error: ${response.code}", response.code)
                     }
                 } catch (e: Throwable) {
                     Log.w(TAG, "onFailure: failed to parse from $bodyRaw")
@@ -166,12 +180,15 @@ internal class InteractionsAPI(
             eventSource.cancel()
         }
         // trySend 在缓冲满时会静默丢弃 delta，导致回复中间缺字 (#1295)，因此缓冲必须无界
-    }.buffer(Channel.UNLIMITED).flowOn(Dispatchers.IO)
+        }.buffer(Channel.UNLIMITED).flowOn(Dispatchers.IO)
+            .reportKeyResult(keyRoulette, providerSetting, key)
+    }
 
     private fun buildRequest(
         providerSetting: ProviderSetting.Google,
         params: TextGenerationParams,
         requestBody: JsonObject,
+        key: String,
     ): Request {
         val url = "${providerSetting.baseUrl}/interactions"
         return Request.Builder()
@@ -179,7 +196,7 @@ internal class InteractionsAPI(
             .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
             .configureSessionHeaders(url, params.sessionId)
             .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
-            .addHeader("x-goog-api-key", keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString()))
+            .addHeader("x-goog-api-key", key)
             .configureReferHeaders(providerSetting.baseUrl)
             .build()
     }
