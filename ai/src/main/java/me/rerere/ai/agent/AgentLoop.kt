@@ -126,6 +126,7 @@ internal class AgentLoop(
                     }
                 }
                 attempt.withStepStats(base, firstChunk?.elapsedNow() ?: Duration.ZERO)
+                    .also { finished -> checkResponseContent(finished) }
             }
         } catch (e: StreamChunkHandlingException) {
             throw e.cause
@@ -142,6 +143,7 @@ internal class AgentLoop(
         val result = withRetry(request.retry, onRetry = { events.emit(AgentEvent.Retrying(it)) }) {
             requestMark = TimeSource.Monotonic.markNow()
             request.provider.generateText(request.providerSetting, messages, params)
+                .also { checkResponseContent(it.message) }
         }
         val requestTime = requestMark.elapsedNow()
         // 和流式一样只追加 part，不并进之前步骤的文本或推理里，否则 newPartsFrom 之后就不全是这一步的内容了。
@@ -154,6 +156,17 @@ internal class AgentLoop(
         ).finishReasoning().withStepStats(base, requestTime)
         preview(generated, newPartsFrom = base.parts.size)
         return generated
+    }
+
+    /**
+     * 响应内容重试检查：网关可能用 200 返回"繁忙/限流"之类的内容，命中配置的关键字时
+     * 抛 [RetryableResponseException] 让 withRetry 重新发起本步。工具调用消息不检查，
+ * 避免把正常的工具输入当成错误内容。
+     */
+    private fun checkResponseContent(message: UIMessage) {
+        if (message.getTools().isNotEmpty()) return
+        val reason = request.retry.responseRetryCheck(message) ?: return
+        throw RetryableResponseException(reason)
     }
 
     // 按调用顺序逐个执行，每执行完一个就更新一次，中途取消时已经执行的结果不会丢
