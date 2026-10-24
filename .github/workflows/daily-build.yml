@@ -116,6 +116,10 @@ jobs:
           }
           GS_JSON_EOF
 
+      # ai 模块单元测试（重试策略、多 Key 暂停规则等），挂了就中断，不带病出包
+      - name: Run ai module unit tests
+        run: ./gradlew :ai:testReleaseUnitTest
+
       - name: Gradle Build
         run: |
           chmod +x gradlew

@@ -92,7 +92,7 @@ object MultiKeyStateCenter {
 
         val selected = when (setting.multiKey.strategy) {
             MultiKeyStrategy.RANDOM -> pool.random()
-            // 轮询和并发都优先挑最久没用过的；并发竞速的第二个 key 由 pickRacePair 再挑
+            // 轮询和并发都优先挑最久没用过的；并发的第二个 key 由 pickRacePair 再挑
             MultiKeyStrategy.ROUND_ROBIN, MultiKeyStrategy.PARALLEL ->
                 pool.minByOrNull { key -> providerStates[key]?.lastUsedAt ?: 0L } ?: pool.first()
         }

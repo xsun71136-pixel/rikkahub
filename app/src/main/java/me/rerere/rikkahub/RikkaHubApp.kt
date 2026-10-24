@@ -24,6 +24,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import me.rerere.ai.util.MultiKeyStateCenter
 import me.rerere.common.android.appTempFolder
 import me.rerere.rikkahub.data.ai.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.datastore.SettingsStore
@@ -87,6 +88,9 @@ class RikkaHubApp : Application() {
 
         // install crash handler
         CrashHandler.install(this)
+
+        // 加载多 Key 运行状态（暂停/使用计数），让设置页一打开就能看到
+        MultiKeyStateCenter.init(this)
 
         // delete temp files
         deleteTempFiles()
