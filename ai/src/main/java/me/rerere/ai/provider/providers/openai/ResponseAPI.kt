@@ -1,6 +1,7 @@
 package me.rerere.ai.provider.providers.openai
 
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
@@ -50,14 +51,17 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
+import me.rerere.ai.util.HttpException
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.configureSessionHeaders
 import me.rerere.ai.util.encodeBase64
+import me.rerere.ai.util.httpError
 import me.rerere.ai.util.json
 import me.rerere.ai.util.mergeCustomBody
 import me.rerere.ai.util.mergeCustomHeaders
 import me.rerere.ai.util.parseErrorDetail
+import me.rerere.ai.util.reportKeyResult
 import me.rerere.ai.util.stringSafe
 import me.rerere.common.http.await
 import me.rerere.common.http.jsonObjectOrNull
@@ -95,24 +99,39 @@ class ResponseAPI(
         providerSetting: ProviderSetting.OpenAI,
         messages: List<UIMessage>,
         params: TextGenerationParams
-    ): TextGenerationResult = generateText(providerSetting.toResponsesEndpoint(params), messages, params)
+    ): TextGenerationResult {
+        val key = keyRoulette.next(providerSetting)
+        return try {
+            generateText(providerSetting.toResponsesEndpoint(params, key), messages, params)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            keyRoulette.reportFailure(providerSetting, key, e)
+            throw e
+        }
+    }
 
     override suspend fun streamText(
         providerSetting: ProviderSetting.OpenAI,
         messages: List<UIMessage>,
         params: TextGenerationParams
-    ): Flow<StreamChunk> = streamText(providerSetting.toResponsesEndpoint(params), messages, params)
+    ): Flow<StreamChunk> {
+        val key = keyRoulette.next(providerSetting)
+        return streamText(providerSetting.toResponsesEndpoint(params, key), messages, params)
+            .reportKeyResult(keyRoulette, providerSetting, key)
+    }
 
-    private fun ProviderSetting.OpenAI.toResponsesEndpoint(params: TextGenerationParams) = ResponsesEndpoint(
-        url = "$baseUrl$responsesPath",
-        capabilities = resolveResponseProviderCapabilities(baseUrl.toHttpUrl().host),
-        configureRequest = {
-            headers(mergeCustomHeaders(params.customHeaders))
-            addHeader("Authorization", "Bearer ${keyRoulette.next(apiKey, id.toString())}")
-            configureReferHeaders(baseUrl)
-            configureSessionHeaders(baseUrl, params.sessionId)
-        },
-    )
+    private fun ProviderSetting.OpenAI.toResponsesEndpoint(params: TextGenerationParams, key: String) =
+        ResponsesEndpoint(
+            url = "$baseUrl$responsesPath",
+            capabilities = resolveResponseProviderCapabilities(baseUrl.toHttpUrl().host),
+            configureRequest = {
+                headers(mergeCustomHeaders(params.customHeaders))
+                addHeader("Authorization", "Bearer $key")
+                configureReferHeaders(baseUrl)
+                configureSessionHeaders(baseUrl, params.sessionId)
+            },
+        )
 
     internal suspend fun generateText(
         endpoint: ResponsesEndpoint,
@@ -137,7 +156,7 @@ class ResponseAPI(
         // await() waits for the response headers; reading the body can still block.
         client.newCall(request).await().use { response ->
             if (!response.isSuccessful) {
-                throw Exception("Failed to get response: ${response.code} ${response.body.string()}")
+                throw httpError(response, "Failed to get response")
             }
 
             val bodyStr = response.body.string()
@@ -204,13 +223,17 @@ class ResponseAPI(
                     if (!bodyRaw.isNullOrBlank()) {
                         val bodyElement = Json.parseToJsonElement(bodyRaw)
                         println(bodyElement)
-                        exception = bodyElement.parseErrorDetail()
+                        exception = bodyElement.parseErrorDetail(response?.code)
                         Log.i(TAG, "onFailure: $exception")
                     }
                 } catch (e: Throwable) {
                     Log.w(TAG, "onFailure: failed to parse from $bodyRaw")
                     e.printStackTrace()
                 } finally {
+                    // 没有可读错误体的 HTTP 错误也要带上状态码，自动重试和多 Key 暂停规则都靠它匹配
+                    if (exception == null && response != null && !response.isSuccessful) {
+                        exception = HttpException("HTTP ${response.code}", response.code)
+                    }
                     close(exception)
                 }
             }
