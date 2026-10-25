@@ -44,7 +44,6 @@ jobs:
           set -euxo pipefail
           CS=app/src/main/java/me/rerere/rikkahub/service/ChatService.kt
           WDP=app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt
-          FP=app/src/main/java/me/rerere/rikkahub/ui/components/ai/FilesPicker.kt
           git checkout 9f8861c6 -- "$CS" "$WDP"
           # ChatService：R4（后台压缩）+ R5（自动压缩触发点修复）
           perl patches/apply_patch.pl patches/0001-chatservice-compress.patch "$CS"
@@ -52,14 +51,11 @@ jobs:
           # WorkspaceDetailPage：R4 批量操作与 ZIP
           cat patches/0002-wdp-a.patch patches/0002-wdp-b.patch > /tmp/wdp.patch
           perl patches/apply_patch.pl /tmp/wdp.patch "$WDP"
-          # FilesPicker：仓库里的版本仍是 R4 之前的，直接打 R5 补丁
-          perl patches/apply_patch.pl patches/0004-filespicker-compress-entry.patch "$FP"
           echo '--- 校验 ---'
           grep -c 'onSessionGenerationFinished' "$CS"
           grep -c 'launchCompress' "$CS"
           grep -c 'BulkProgressCard' "$WDP"
-          grep -c 'chat_page_compress_settings' "$FP"
-          wc -l "$CS" "$WDP" "$FP"
+          wc -l "$CS" "$WDP"
 
       - name: Set up JDK
         uses: actions/setup-java@v4
