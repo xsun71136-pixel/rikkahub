@@ -1,4 +1,4 @@
-# 轮 6 修复 8/8：把多 Key 页重新包回 Dialog 子窗口（并补齐 import）。
+# 轮 6 修复 8/8：把多 Key 页重新包回 Dialog 子窗口（并整理 import）。
 #
 # 崩溃原因：MultiKeyDialog 由 ProviderConfigure()（Column + verticalScroll）内联调起，
 # 07 把它改成 Scaffold + LazyColumn 直接铺开后，LazyColumn 拿到的高度约束是 Infinity：
@@ -9,9 +9,8 @@
 # 返回键改成 FilledTonalIconButton(onClick = onDismiss)，外观和 BackButton 一致，但不能用
 # BackButton —— 它会 popBackStack，把底下的服务商详情页一起退掉。
 #
-# 实现不依赖 07 的具体版本：
-#   - 从 MultiKeyDialog 里第一个 `Scaffold(` 起按大括号配平找块尾，不数固定行数、不比注释文案；
-#   - import 只做「缺则插、多余则删」，保留原有排列顺序。
+# 块尾只用一条结构锚点：多 Key 页里紧跟 Scaffold 的 `if (showTest) {`。
+# （不能用大括号配平 —— topBar = { ... }, 结束时就回到 0 了，会截断在顶栏处。）
 set -euo pipefail
 perl - app/src/main/java/me/rerere/rikkahub/ui/pages/setting/components/MultiKeyConfig.kt <<'PERL'
 my $F = $ARGV[0];
@@ -27,22 +26,12 @@ if (index($s, "properties = DialogProperties(\n") >= 0) {
     my $tail = substr($s, $fn);
     $tail =~ /^[ \t]*Scaffold\($/m or die "Scaffold( line not found\n";
     my $a = $fn + $-[0];
-
-    # 大括号配平找块尾
-    my $rest = substr($s, $a);
-    my @L = split /(?<=\n)/, $rest;
-    my $d = 0; my $end = -1; my $len = 0;
-    for my $i (0..$#L) {
-        $len += length($L[$i]);
-        $d += ($L[$i] =~ tr/{//);
-        $d -= ($L[$i] =~ tr/}//);
-        if ($i > 0 && $d == 0) { $end = $len; last; }
-    }
-    die "Scaffold block end not found\n" if $end < 0;
+    $tail =~ /^[ \t]*if \(showTest\) \{$/m or die "if (showTest) not found\n";
+    my $ifpos = $fn + $-[0];
 
     my $pre = substr($s, 0, $a);
-    my $blk = substr($s, $a, $end);
-    $blk =~ s/\n\z//;
+    my $blk = substr($s, $a, $ifpos - $a);
+    $blk =~ s/\s+\z//;
     $blk =~ s/^(.+)$/        $1/mg;
 
     # 去掉紧贴其上的旧注释（内容已不成立）
@@ -66,7 +55,7 @@ if (index($s, "properties = DialogProperties(\n") >= 0) {
 "            color = CustomColors.topBarColors.containerColor,\n" .
 "        ) {\n";
 
-    $s = $pre . $note . $head . $blk . "\n        }\n    }\n" . substr($s, $a + $end);
+    $s = $pre . $note . $head . $blk . "\n        }\n    }\n\n" . substr($s, $ifpos);
     $n++;
 }
 
@@ -93,42 +82,42 @@ if ($s =~ /^([ \t]*)navigationIcon = \{ BackButton\(\) \},$/m) {
     $n++;
 }
 
-# ---------- 3) import：删多余 / 补缺失（保持原有顺序） ----------
+# ---------- 3) import：去掉不再用的 BackButton、补齐缺失项、整段按字典序重排 ----------
 my @lines = split /(?<=\n)/, $s;
+my ($fst, $lst) = (-1, -1);
+my @imp; my %seen;
+for my $i (0..$#lines) {
+    next unless $lines[$i] =~ /^import /;
+    $fst = $i if $fst < 0;
+    $lst = $i;
+    next if $seen{$lines[$i]}++;
+    push @imp, $lines[$i];
+}
+die "no import section\n" if $fst < 0;
 
-# 3a) BackButton 已不再使用则删掉它的 import
-if ($s !~ /BackButton\(/) {
-    for my $i (0..$#lines) {
-        if ($lines[$i] eq "import me.rerere.rikkahub.ui.components.nav.BackButton\n") {
-            $lines[$i] = "";
-            $n++;
-        }
-    }
+@imp = grep { $_ ne "import me.rerere.rikkahub.ui.components.nav.BackButton\n" } @imp
+    if $s !~ /BackButton\(/;
+
+for my $w (
+  "import androidx.compose.material3.FilledTonalIconButton\n",
+  "import androidx.compose.material3.IconButtonDefaults\n",
+  "import androidx.compose.material3.Surface\n",
+  "import androidx.compose.ui.window.Dialog\n",
+  "import androidx.compose.ui.window.DialogProperties\n",
+  "import me.rerere.hugeicons.stroke.ArrowLeft01\n",
+) {
+    push @imp, $w unless grep { $_ eq $w } @imp;
 }
 
-# 3b) 缺失的 import 插到「指定的邻近 import」之后；找不到就退回最后一个 import
-my @WANT = (
-  ["import androidx.compose.material3.FilledTonalIconButton\n", "import androidx.compose.material3.FilledTonalButton\n"],
-  ["import androidx.compose.material3.IconButtonDefaults\n",     "import androidx.compose.material3.IconButton\n"],
-  ["import androidx.compose.material3.Surface\n",               "import androidx.compose.material3.Scaffold\n"],
-  ["import androidx.compose.ui.window.Dialog\n",                "import androidx.compose.ui.unit.dp\n"],
-  ["import androidx.compose.ui.window.DialogProperties\n",      "import androidx.compose.ui.window.Dialog\n"],
-  ["import me.rerere.hugeicons.stroke.ArrowLeft01\n",           "import me.rerere.hugeicons.stroke.Add01\n"],
-);
-for my $w (@WANT) {
-    my ($line, $anchor) = @$w;
-    next if grep { $_ eq $line } @lines;
-    my $at = -1;
-    for my $i (0..$#lines) { if ($lines[$i] eq $anchor) { $at = $i; last } }
-    if ($at < 0) {
-        for my $i (0..$#lines) { $at = $i if $lines[$i] =~ /^import / }
-        die "no import section\n" if $at < 0;
-    }
-    splice @lines, $at + 1, 0, $line;
-    $n++;
+my @sorted = sort { lc($a) cmp lc($b) } @imp;
+my @out;
+for my $i (0..$#lines) {
+    if ($i == $fst) { push @out, @sorted; next; }
+    next if $i > $fst && $i <= $lst;
+    push @out, $lines[$i];
 }
-
-$s = join('', @lines);
+$s = join('', @out);
+$n++;
 
 open(my $o, '>', $F) or die; print $o $s; close $o;
 print "multikey dialog wrap edits=$n\n";
