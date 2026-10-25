@@ -1,20 +1,28 @@
 package me.rerere.rikkahub.ui.pages.setting.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ContainedLoadingIndicator
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
@@ -23,6 +31,7 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,6 +49,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -61,10 +72,12 @@ import me.rerere.ai.util.MultiKeyState
 import me.rerere.ai.util.MultiKeyStateCenter
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
+import me.rerere.hugeicons.stroke.ArrowLeft01
 import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.Refresh01
+import me.rerere.hugeicons.stroke.Zap
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.components.ai.ModelField
 import me.rerere.rikkahub.ui.components.ui.CardGroup
@@ -153,7 +166,10 @@ internal fun maskKey(key: String): String {
 
 private val pauseTimeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
-/** 多 Key 管理弹窗：密钥列表与使用方式、暂停条件、测试 */
+/**
+ * 多 Key 管理页：全屏弹层（普通对话框太窄，密钥行和选项会被挤压变形）。
+ * 布局自上而下：使用方式 → 密钥列表与添加 → 暂停规则 → 测试连接。
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MultiKeyDialog(
@@ -166,7 +182,6 @@ fun MultiKeyDialog(
     val allStates by MultiKeyStateCenter.states.collectAsStateWithLifecycle()
     val keyStates = allStates[provider.id.toString()].orEmpty()
     val availableCount = keys.count { key -> keyStates[key]?.isPaused() != true }
-    var adding by remember { mutableStateOf(false) }
     var showTest by remember { mutableStateOf(false) }
 
     fun editKeys(newKeys: List<String>) {
@@ -175,29 +190,34 @@ fun MultiKeyDialog(
         MultiKeyStateCenter.pruneKeys(provider.id.toString(), distinct)
     }
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.setting_provider_page_multi_key)) },
-        text = {
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
             Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier
-                    .imePadding()
-                    .verticalScroll(rememberScrollState()),
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .imePadding(),
             ) {
-                Text(
-                    text = stringResource(R.string.multi_key_dialog_desc),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                // ---- 密钥 ----
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                // 顶栏：返回、标题、摘要、完成
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(HugeIcons.ArrowLeft01, contentDescription = stringResource(R.string.back))
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = stringResource(R.string.multi_key_section_keys),
-                            style = MaterialTheme.typography.titleSmallEmphasized,
-                            modifier = Modifier.weight(1f),
+                            text = stringResource(R.string.setting_provider_page_multi_key),
+                            style = MaterialTheme.typography.titleLarge,
                         )
                         Text(
                             text = stringResource(
@@ -206,230 +226,247 @@ fun MultiKeyDialog(
                                 availableCount,
                                 keys.size,
                             ),
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(onClick = onDismiss) {
+                        Text(stringResource(R.string.common_done))
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    // ---- 使用方式 ----
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SectionLabel(stringResource(R.string.multi_key_strategy))
+                        ConnectedChoiceButtons(
+                            options = MultiKeyStrategy.entries,
+                            selected = config.strategy,
+                            onSelect = { onEdit(provider.withMultiKey(config.copy(strategy = it))) },
+                        ) { strategy, selected ->
+                            ConnectedChoiceLabel(text = strategyLabel(strategy), selected = selected)
+                        }
+                        Text(
+                            text = strategyNote(config.strategy),
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
 
-                    // 使用方式
-                    Text(
-                        text = stringResource(R.string.multi_key_strategy),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    ConnectedChoiceButtons(
-                        options = MultiKeyStrategy.entries,
-                        selected = config.strategy,
-                        onSelect = { onEdit(provider.withMultiKey(config.copy(strategy = it))) },
-                    ) { strategy, selected ->
-                        ConnectedChoiceLabel(text = strategyLabel(strategy), selected = selected)
-                    }
-                    Text(
-                        text = strategyNote(config.strategy),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-
-                    // 密钥列表
-                    keys.forEach { key ->
-                        val state = keyStates[key]
-                        KeyRow(
-                            keyValue = key,
-                            state = state,
-                            onRecover = { MultiKeyStateCenter.recover(provider.id.toString(), key) },
-                            onDelete = { editKeys(keys - key) },
-                        )
-                    }
-
-                    // 操作：添加 / 恢复全部 / 测试
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { adding = !adding }) {
-                            Icon(HugeIcons.Add01, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Text(stringResource(R.string.multi_key_add))
-                        }
-                        if (keyStates.values.any { it.isPaused() }) {
-                            TextButton(onClick = { MultiKeyStateCenter.recoverAll(provider.id.toString()) }) {
-                                Icon(HugeIcons.Refresh01, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Text(stringResource(R.string.multi_key_recover_all))
+                    // ---- 密钥 ----
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            SectionLabel(
+                                text = stringResource(R.string.multi_key_section_keys),
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (keyStates.values.any { it.isPaused() }) {
+                                TextButton(onClick = { MultiKeyStateCenter.recoverAll(provider.id.toString()) }) {
+                                    Icon(HugeIcons.Refresh01, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Text(
+                                        stringResource(R.string.multi_key_recover_all),
+                                        modifier = Modifier.padding(start = 4.dp),
+                                    )
+                                }
                             }
                         }
-                        Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.End) {
-                            TextButton(onClick = { showTest = true }) {
-                                Text(stringResource(R.string.multi_key_test))
+
+                        // 密钥列表：限高滚动，数量多也不把页面撑长
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 232.dp)
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            keys.forEach { key ->
+                                KeyRow(
+                                    keyValue = key,
+                                    state = keyStates[key],
+                                    onRecover = { MultiKeyStateCenter.recover(provider.id.toString(), key) },
+                                    onDelete = { editKeys(keys - key) },
+                                )
                             }
                         }
-                    }
 
-                    // 添加框
-                    if (adding) {
+                        // 常驻添加行：一行一个密钥，支持批量粘贴
                         var input by remember { mutableStateOf("") }
-                        OutlinedTextField(
-                            value = input,
-                            onValueChange = { input = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text(stringResource(R.string.multi_key_add_placeholder)) },
-                            minLines = 3,
-                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            OutlinedTextField(
+                                value = input,
+                                onValueChange = { input = it },
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text(stringResource(R.string.multi_key_add_placeholder)) },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                            )
+                            TextButton(
+                                onClick = {
+                                    val parts = input.split(Regex("[\\s,;，；]+"))
+                                        .map { it.trim() }
+                                        .filter { it.isNotBlank() }
+                                    if (parts.isNotEmpty()) {
+                                        editKeys(keys + parts)
+                                        input = ""
+                                    }
+                                },
+                            ) {
+                                Icon(HugeIcons.Add01, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Text(
+                                    stringResource(R.string.multi_key_add),
+                                    modifier = Modifier.padding(start = 4.dp),
+                                )
+                            }
+                        }
                         Text(
                             text = stringResource(R.string.multi_key_add_hint),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                        ) {
-                            TextButton(onClick = { adding = false }) {
-                                Text(stringResource(R.string.cancel))
-                            }
-                            TextButton(
-                                onClick = {
-                                    val parts = input.split(Regex("[\\s,]+"))
-                                        .map { it.trim() }
-                                        .filter { it.isNotBlank() }
-                                    editKeys(keys + parts)
-                                    input = ""
-                                    adding = false
-                                },
-                            ) {
-                                Text(stringResource(R.string.multi_key_add))
-                            }
-                        }
                     }
-                }
 
-                // ---- 暂停条件 ----
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    // ---- 暂停规则 ----
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SectionLabel(stringResource(R.string.multi_key_pause_section))
+
                         Text(
-                            text = stringResource(R.string.multi_key_pause_section),
-                            style = MaterialTheme.typography.titleSmallEmphasized,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            text = stringResource(
-                                R.string.multi_key_pause_meta,
-                                config.pauseRules.size,
-                                pauseDurationLabel(config.pauseDurationMinutes),
-                            ),
-                            style = MaterialTheme.typography.labelMedium,
+                            text = stringResource(R.string.multi_key_pause_duration),
+                            style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    }
+                        // 五个时长用 chips 自动换行，不再挤在一行截断
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            listOf(5, 30, 60, 1440, -1).forEach { duration ->
+                                FilterChip(
+                                    selected = config.pauseDurationMinutes == duration,
+                                    onClick = {
+                                        onEdit(provider.withMultiKey(config.copy(pauseDurationMinutes = duration)))
+                                    },
+                                    label = { Text(pauseDurationLabel(duration)) },
+                                )
+                            }
+                        }
 
-                    Text(
-                        text = stringResource(R.string.multi_key_pause_duration),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    ConnectedChoiceButtons(
-                        options = listOf(5, 30, 60, 1440, -1),
-                        selected = config.pauseDurationMinutes,
-                        onSelect = { onEdit(provider.withMultiKey(config.copy(pauseDurationMinutes = it))) },
-                    ) { duration, selected ->
-                        ConnectedChoiceLabel(
-                            text = pauseDurationLabel(duration),
-                            selected = selected,
-                        )
-                    }
-
-                    Text(
-                        text = stringResource(R.string.multi_key_rules),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        config.pauseRules.forEach { rule ->
-                            InputChip(
-                                selected = false,
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = stringResource(R.string.multi_key_rules),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(
                                 onClick = {
                                     onEdit(
                                         provider.withMultiKey(
-                                            config.copy(pauseRules = config.pauseRules - rule)
+                                            config.copy(pauseRules = MultiKeyConfig.DEFAULT_PAUSE_RULES)
                                         )
                                     )
                                 },
-                                label = { Text(rule) },
-                                trailingIcon = {
-                                    Icon(
-                                        HugeIcons.Cancel01,
-                                        contentDescription = null,
-                                        modifier = Modifier.padding(2.dp),
-                                    )
+                            ) {
+                                Text(stringResource(R.string.setting_model_page_reset_to_default))
+                            }
+                        }
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            config.pauseRules.forEach { rule ->
+                                InputChip(
+                                    selected = false,
+                                    onClick = {
+                                        onEdit(
+                                            provider.withMultiKey(
+                                                config.copy(pauseRules = config.pauseRules - rule)
+                                            )
+                                        )
+                                    },
+                                    label = {
+                                        Text(
+                                            rule,
+                                            style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                                        )
+                                    },
+                                    trailingIcon = {
+                                        Icon(
+                                            HugeIcons.Cancel01,
+                                            contentDescription = null,
+                                            modifier = Modifier.padding(2.dp),
+                                        )
+                                    },
+                                )
+                            }
+                        }
+                        var ruleInput by remember { mutableStateOf("") }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            OutlinedTextField(
+                                value = ruleInput,
+                                onValueChange = { ruleInput = it },
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text(stringResource(R.string.multi_key_add_rule_placeholder)) },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                            )
+                            TextButton(
+                                onClick = {
+                                    val rule = ruleInput.trim()
+                                    if (rule.isNotEmpty() && rule !in config.pauseRules) {
+                                        onEdit(
+                                            provider.withMultiKey(
+                                                config.copy(pauseRules = config.pauseRules + rule)
+                                            )
+                                        )
+                                    }
+                                    ruleInput = ""
                                 },
+                            ) {
+                                Icon(HugeIcons.Add01, contentDescription = null, modifier = Modifier.size(16.dp))
+                            }
+                        }
+
+                        // 全部暂停警告
+                        if (keys.isNotEmpty() && availableCount == 0) {
+                            Text(
+                                text = stringResource(R.string.multi_key_all_paused_warning),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.extendColors.red6,
                             )
                         }
                     }
-                    var ruleInput by remember { mutableStateOf("") }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        OutlinedTextField(
-                            value = ruleInput,
-                            onValueChange = { ruleInput = it },
-                            modifier = Modifier.weight(1f),
-                            placeholder = { Text(stringResource(R.string.multi_key_add_rule_placeholder)) },
-                            singleLine = true,
-                        )
-                        FilledTonalButton(
-                            onClick = {
-                                val rule = ruleInput.trim()
-                                if (rule.isNotEmpty() && rule !in config.pauseRules) {
-                                    onEdit(
-                                        provider.withMultiKey(
-                                            config.copy(pauseRules = config.pauseRules + rule)
-                                        )
-                                    )
-                                }
-                                ruleInput = ""
-                            },
-                        ) {
-                            Icon(HugeIcons.Add01, contentDescription = null)
-                        }
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        TextButton(
-                            onClick = {
-                                onEdit(
-                                    provider.withMultiKey(
-                                        config.copy(pauseRules = MultiKeyConfig.DEFAULT_PAUSE_RULES)
-                                    )
-                                )
-                            },
-                        ) {
-                            Text(stringResource(R.string.setting_model_page_reset_to_default))
-                        }
-                    }
-                }
 
-                // 全部暂停警告
-                if (keys.isNotEmpty() && availableCount == 0) {
-                    Text(
-                        text = stringResource(R.string.multi_key_all_paused_warning),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.extendColors.red6,
-                    )
+                    // ---- 测试连接 ----
+                    Button(
+                        onClick = { showTest = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = keys.isNotEmpty(),
+                    ) {
+                        Icon(HugeIcons.Zap, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Text(
+                            stringResource(R.string.multi_key_test),
+                            modifier = Modifier.padding(start = 6.dp),
+                        )
+                    }
+
+                    // 底部留白，避免最后一项贴着屏幕边缘
+                    Spacer(modifier = Modifier.size(16.dp))
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.common_done))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-        },
-    )
+        }
+    }
 
     if (showTest) {
         MultiKeyTestDialog(
@@ -438,6 +475,17 @@ fun MultiKeyDialog(
             onDismiss = { showTest = false },
         )
     }
+}
+
+/** 分区小标题 */
+@Composable
+private fun SectionLabel(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmallEmphasized,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -449,6 +497,7 @@ private fun pauseDurationLabel(minutes: Int): String = when (minutes) {
     else -> stringResource(R.string.multi_key_duration_forever)
 }
 
+/** 密钥行：状态点（绿=可用/橙=暂停/灰=未用）+ 掩码 + 使用统计 + 恢复/删除 */
 @Composable
 private fun KeyRow(
     keyValue: String,
@@ -474,6 +523,20 @@ private fun KeyRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // 状态点：绿=可用 / 橙=暂停中（点一下立即恢复）/ 灰=还没用过
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .clip(CircleShape)
+                .background(
+                    when {
+                        paused -> MaterialTheme.extendColors.orange6
+                        state == null -> MaterialTheme.colorScheme.outlineVariant
+                        else -> MaterialTheme.extendColors.green6
+                    }
+                )
+                .then(if (paused) Modifier.clickable(onClick = onRecover) else Modifier),
+        )
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = maskKey(keyValue),
