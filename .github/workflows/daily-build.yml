@@ -1,14 +1,11 @@
 name: Daily Build
 
 on:
-  # 每天 UTC 09:00、18:00 触发（北京时间 17:00、次日 02:00）
   schedule:
     - cron: '0 9,18 * * *'
-  # 允许手动触发
   workflow_dispatch:
 
 jobs:
-  # 检查过往 24 小时是否有新提交，避免无变化时也重复构建。节约额度
   check:
     runs-on: ubuntu-latest
     outputs:
@@ -18,17 +15,14 @@ jobs:
       - name: Check for recent commits
         id: check
         run: |
-          # 手动触发时强制构建
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "should_build=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # 定时触发：仅当过往 24 小时内提交更新时才构建
           if [ -n "$(git log --since='24 hours ago' --oneline)" ]; then
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           else
             echo "should_build=false" >> "$GITHUB_OUTPUT"
-            echo "过往 24 小时无新提交，跳过构建"
           fi
 
   build:
@@ -36,46 +30,50 @@ jobs:
     if: needs.check.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # 创建 Release 需要写权限
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive # 拉取子模块
+          submodules: recursive
 
-      # ===== 修复两个被截断的大文件 =====
-      # MCP 推送大文件时会被截断，因此 ChatService.kt / WorkspaceDetailPage.kt 的改动
-      # 以 unified diff 保存在 patches/ 下。先用 git checkout 从成功构建过的提交取回基线，
-      # 再打补丁；任何一步不匹配都会立刻失败（不会静默写坏文件）。
+      - name: Debug base file encoding
+        run: |
+          set -uxo pipefail
+          git checkout 9f8861c6 -- app/src/main/java/me/rerere/rikkahub/service/ChatService.kt
+          F=app/src/main/java/me/rerere/rikkahub/service/ChatService.kt
+          echo "bytes=$(stat -c%s $F) lines=$(wc -l < $F)"
+          file "$F" || true
+          sed -n '186,192p' "$F" | cat -A
+          echo '--- patch head ---'
+          sed -n '1,8p' patches/0001-chatservice-compress.patch | cat -A
+          echo '--- perl version ---'
+          perl -v | head -2
+
+      # 恢复两个被 MCP 截断的大文件：从成功构建过的提交取回基线，再打补丁
       - name: Restore patched large sources
         run: |
           set -euxo pipefail
           git checkout 9f8861c6 -- \
             app/src/main/java/me/rerere/rikkahub/service/ChatService.kt \
             app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt
-          wc -l app/src/main/java/me/rerere/rikkahub/service/ChatService.kt \
-            app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt
           perl patches/apply_patch.pl patches/0001-chatservice-compress.patch \
             app/src/main/java/me/rerere/rikkahub/service/ChatService.kt
           cat patches/0002-wdp-a.patch patches/0002-wdp-b.patch > /tmp/wdp.patch
           perl patches/apply_patch.pl /tmp/wdp.patch \
             app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt
-          echo '--- 校验关键词 ---'
           grep -c 'launchCompress' app/src/main/java/me/rerere/rikkahub/service/ChatService.kt
           grep -c 'BulkProgressCard' app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt
 
-      # 与 Android Studio 自带的 JetBrains Runtime 21 保持一致
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'jetbrains'
           java-version: '21'
         env:
-          # jetbrains 镜像需要走 GitHub API 下载，带上 token 避免限流
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # web 模块的 preBuild 会执行 `pnpm run build` 构建前端，必须先装好 Node + pnpm
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -88,7 +86,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: web-ui/pnpm-lock.yaml
 
-      # gradle 的 buildWebUi 任务只跑 build 不跑 install，需要在此提前安装依赖
       - name: Install web-ui dependencies
         working-directory: web-ui
         run: pnpm install --frozen-lockfile
@@ -103,8 +100,6 @@ jobs:
 
       - name: Prepare build files
         run: |
-          # CI 不配置签名：app/build.gradle.kts 在缺少签名配置时自动产出未签名 APK，由使用者自行签名
-          # 写入占位 google-services.json（仅消耗 com.google.gms:google-services 插件的格式校验，Firebase 云端功能在 CI 包中不可用）
           cat > app/google-services.json << 'GS_JSON_EOF'
           {
             "project_info": {
@@ -116,21 +111,11 @@ jobs:
               {
                 "client_info": {
                   "mobilesdk_app_id": "1:100000000000:android:0000000000000000000000",
-                  "android_client_info": {
-                    "package_name": "me.rerere.rikkahub"
-                  }
+                  "android_client_info": { "package_name": "me.rerere.rikkahub" }
                 },
                 "oauth_client": [],
-                "api_key": [
-                  {
-                    "current_key": "AIzaCyCiPLaCeHoLdErKeYFoRuNsIgNeDbUiLd00"
-                  }
-                ],
-                "services": {
-                  "appinvite_service": {
-                    "other_platform_oauth_client": []
-                  }
-                }
+                "api_key": [{ "current_key": "AIzaCyCiPLaCeHoLdErKeYFoRuNsIgNeDbUiLd00" }],
+                "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
               }
             ],
             "configuration_version": "1"
