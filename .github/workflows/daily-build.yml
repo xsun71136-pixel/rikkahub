@@ -44,16 +44,18 @@ jobs:
           fetch-depth: 0
           submodules: recursive # 拉取子模块
 
-      # ===== 修复两个被截断的大文件：从成功构建过的提交取回基线，再应用补丁 =====
+      # ===== 修复两个被截断的大文件 =====
       # MCP 推送大文件时会被截断，因此 ChatService.kt / WorkspaceDetailPage.kt 的改动
-      # 以 unified diff 形式保存在 patches/ 下，构建前在此还原。任何补丁不匹配都会直接失败。
+      # 以 unified diff 保存在 patches/ 下。先用 git checkout 从成功构建过的提交取回基线，
+      # 再打补丁；任何一步不匹配都会立刻失败（不会静默写坏文件）。
       - name: Restore patched large sources
         run: |
           set -euxo pipefail
-          git show 9f8861c6:app/src/main/java/me/rerere/rikkahub/service/ChatService.kt \
-            > app/src/main/java/me/rerere/rikkahub/service/ChatService.kt
-          git show 9f8861c6:app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt \
-            > app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt
+          git checkout 9f8861c6 -- \
+            app/src/main/java/me/rerere/rikkahub/service/ChatService.kt \
+            app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt
+          wc -l app/src/main/java/me/rerere/rikkahub/service/ChatService.kt \
+            app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt
           perl patches/apply_patch.pl patches/0001-chatservice-compress.patch \
             app/src/main/java/me/rerere/rikkahub/service/ChatService.kt
           cat patches/0002-wdp-a.patch patches/0002-wdp-b.patch > /tmp/wdp.patch
