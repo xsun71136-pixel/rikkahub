@@ -100,6 +100,7 @@ my $note =
 my $head =
 "    Dialog(\n" .
 "        onDismissRequest = onDismiss,\n" .
+"        // 状态栏交给里面的 Scaffold 处理（和设置页一致）\n" .
 "        properties = DialogProperties(\n" .
 "            usePlatformDefaultWidth = false,\n" .
 "            decorFitsSystemWindows = false,\n" .
