@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.ui.pages.setting
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -11,7 +12,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.InputChip
@@ -37,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.hugeicons.HugeIcons
@@ -178,42 +182,55 @@ fun SettingAutoRetryPage(vm: SettingVM = koinViewModel()) {
                         }
                     }
                     if (config.custom) {
-                        formItem(
-                            headlineContent = { Text(stringResource(R.string.setting_auto_retry_max_retries)) },
-                            trailingContent = { Text(stringResource(R.string.setting_auto_retry_unit_times)) },
-                        ) {
-                            RetryNumberField(
-                                value = config.maxRetries,
-                                onCommit = { v -> update { it.copy(maxRetries = v.coerceIn(0, 10)) } },
-                                rangeHint = "0-10",
-                            )
-                        }
-                        formItem(
-                            headlineContent = { Text(stringResource(R.string.setting_auto_retry_first_delay)) },
-                            trailingContent = { Text("ms") },
-                        ) {
-                            RetryNumberField(
-                                value = config.initialDelayMs,
-                                onCommit = { v -> update { it.copy(initialDelayMs = v.coerceIn(0, 300_000)) } },
-                            )
-                        }
-                        formItem(
-                            headlineContent = { Text(stringResource(R.string.setting_auto_retry_backoff_factor)) },
-                            trailingContent = { Text("×") },
-                        ) {
-                            RetryDecimalField(
-                                value = config.backoffFactor,
-                                onCommit = { v -> update { it.copy(backoffFactor = v.coerceIn(1f, 10f)) } },
-                            )
-                        }
-                        formItem(
-                            headlineContent = { Text(stringResource(R.string.setting_auto_retry_max_delay)) },
-                            trailingContent = { Text("ms") },
-                        ) {
-                            RetryNumberField(
-                                value = config.maxDelayMs,
-                                onCommit = { v -> update { it.copy(maxDelayMs = v.coerceIn(1000, 600_000)) } },
-                            )
+                        // 4 个参数收成 2×2 网格：点格子在弹层里编辑，比四个整行输入框省一半高度
+                        formItem {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    ParamCell(
+                                        label = stringResource(R.string.setting_auto_retry_max_retries),
+                                        value = config.maxRetries.toString(),
+                                        unit = stringResource(R.string.setting_auto_retry_unit_times),
+                                        rangeHint = "0-10",
+                                        modifier = Modifier.weight(1f),
+                                        onCommit = { v ->
+                                            v.toIntOrNull()?.let { n -> update { it.copy(maxRetries = n.coerceIn(0, 10)) } }
+                                        },
+                                    )
+                                    ParamCell(
+                                        label = stringResource(R.string.setting_auto_retry_first_delay),
+                                        value = config.initialDelayMs.toString(),
+                                        unit = "ms",
+                                        rangeHint = "0-300000",
+                                        modifier = Modifier.weight(1f),
+                                        onCommit = { v ->
+                                            v.toLongOrNull()?.let { n -> update { it.copy(initialDelayMs = n.coerceIn(0, 300_000)) } }
+                                        },
+                                    )
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    ParamCell(
+                                        label = stringResource(R.string.setting_auto_retry_backoff_factor),
+                                        value = config.backoffFactor.toString().removeSuffix(".0"),
+                                        unit = "×",
+                                        rangeHint = "1.0-10.0",
+                                        decimal = true,
+                                        modifier = Modifier.weight(1f),
+                                        onCommit = { v ->
+                                            v.toFloatOrNull()?.let { n -> update { it.copy(backoffFactor = n.coerceIn(1f, 10f)) } }
+                                        },
+                                    )
+                                    ParamCell(
+                                        label = stringResource(R.string.setting_auto_retry_max_delay),
+                                        value = config.maxDelayMs.toString(),
+                                        unit = "ms",
+                                        rangeHint = "1000-600000",
+                                        modifier = Modifier.weight(1f),
+                                        onCommit = { v ->
+                                            v.toLongOrNull()?.let { n -> update { it.copy(maxDelayMs = n.coerceIn(1000, 600_000)) } }
+                                        },
+                                    )
+                                }
+                            }
                         }
                         switchItem(
                             checked = config.jitter,
@@ -240,9 +257,11 @@ fun SettingAutoRetryPage(vm: SettingVM = koinViewModel()) {
                                 )
                             },
                         ) {
-                            FlowRow(
+                            // 单行横滑展示节奏，次数多也不换行撑高
+                            Row(
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 delays.forEachIndexed { index, delay ->
                                     if (index > 0) {
@@ -277,7 +296,13 @@ fun SettingAutoRetryPage(vm: SettingVM = koinViewModel()) {
                 ) {
                     item(
                         onClick = { editingList = RetryListKind.CODES },
-                        supportingContent = { Text(config.retryOnCodes.joinToString("  ")) },
+                        supportingContent = {
+                            Text(
+                                config.retryOnCodes.joinToString("  "),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
                         trailingContent = {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -291,7 +316,13 @@ fun SettingAutoRetryPage(vm: SettingVM = koinViewModel()) {
                     )
                     item(
                         onClick = { editingList = RetryListKind.KEYWORDS },
-                        supportingContent = { Text(config.retryOnKeywords.joinToString("、")) },
+                        supportingContent = {
+                            Text(
+                                config.retryOnKeywords.joinToString("、"),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
                         trailingContent = {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -319,7 +350,13 @@ fun SettingAutoRetryPage(vm: SettingVM = koinViewModel()) {
                 ) {
                     item(
                         onClick = { editingList = RetryListKind.STOP },
-                        supportingContent = { Text(config.stopKeywords.joinToString("、")) },
+                        supportingContent = {
+                            Text(
+                                config.stopKeywords.joinToString("、"),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
                         trailingContent = {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -371,64 +408,91 @@ private fun formatDelay(delay: Duration): String {
     }
 }
 
-/** 整数输入：本地草稿，合法时才写入设置 */
+/** 参数小格：标签 + 数值 + 范围提示，点击在弹层里编辑（确认才写入） */
 @Composable
-private fun RetryNumberField(
-    value: Long,
-    onCommit: (Long) -> Unit,
-) {
-    var draft by rememberSaveable(value) { mutableStateOf(value.toString()) }
-    OutlinedTextField(
-        value = draft,
-        onValueChange = { next ->
-            draft = next.filter { it.isDigit() }
-            draft.toLongOrNull()?.let(onCommit)
-        },
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-    )
-}
-
-@Composable
-private fun RetryNumberField(
-    value: Int,
-    onCommit: (Int) -> Unit,
+private fun ParamCell(
+    label: String,
+    value: String,
+    unit: String,
     rangeHint: String,
+    onCommit: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    decimal: Boolean = false,
 ) {
-    var draft by rememberSaveable(value) { mutableStateOf(value.toString()) }
-    OutlinedTextField(
-        value = draft,
-        onValueChange = { next ->
-            draft = next.filter { it.isDigit() }
-            draft.toIntOrNull()?.let(onCommit)
-        },
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        supportingText = { Text(rangeHint) },
-    )
-}
-
-/** 小数输入：退避倍率用 */
-@Composable
-private fun RetryDecimalField(
-    value: Float,
-    onCommit: (Float) -> Unit,
-) {
-    var draft by rememberSaveable(value) { mutableStateOf(value.toString().removeSuffix(".0")) }
-    OutlinedTextField(
-        value = draft,
-        onValueChange = { next ->
-            if (next.all { it.isDigit() || it == '.' }) {
-                draft = next
-                next.toFloatOrNull()?.let(onCommit)
+    var editing by remember { mutableStateOf(false) }
+    Surface(
+        onClick = { editing = true },
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = modifier,
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                Text(
+                    text = " $unit",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 2.dp),
+                )
             }
-        },
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-    )
+            Text(
+                text = rangeHint,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    if (editing) {
+        var draft by rememberSaveable(value) { mutableStateOf(value) }
+        AlertDialog(
+            onDismissRequest = { editing = false },
+            title = { Text(label) },
+            text = {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { next ->
+                        draft = if (decimal) {
+                            next.filter { it.isDigit() || it == '.' }
+                        } else {
+                            next.filter { it.isDigit() }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = if (decimal) KeyboardType.Decimal else KeyboardType.Number,
+                    ),
+                    supportingText = { Text(rangeHint) },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (draft.isNotBlank()) onCommit(draft)
+                        editing = false
+                    },
+                ) {
+                    Text(stringResource(R.string.confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editing = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
 }
 
 /** 词条编辑弹层：chips 点击删除，底部输入框添加（支持一次多个），可恢复默认 */
