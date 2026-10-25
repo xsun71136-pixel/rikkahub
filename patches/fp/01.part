@@ -1,0 +1,70 @@
+--- a/app/src/main/java/me/rerere/rikkahub/ui/components/ai/FilesPicker.kt
++++ b/app/src/main/java/me/rerere/rikkahub/ui/components/ai/FilesPicker.kt
+@@ -310,52 +317,22 @@
+                         Text(stringResource(R.string.assistant_page_tab_extensions))
+                     }
+ 
+-                    // Compress History Button
+-                    if (showCompress) {
+-                        SegmentedListItem(
+-                            onClick = { onShowCompressDialogChange(true) },
+-                            shapes = ListItemDefaults.segmentedShapes(index = itemIndex++, count = itemCount),
+-                            leadingContent = {
+-                                Icon(
+-                                    imageVector = HugeIcons.Package01,
+-                                    contentDescription = null,
+-                                )
+-                            },
+-                            trailingContent = {
+-                                val contextTokens = remember(conversation.messageNodes) {
+-                                    conversation.lastContextTokens()
+-                                }
+-                                // 和压缩对话框同一基准：自定义上下文窗口优先，其次模型窗口
+-                                val contextLength = settings.compressSetting.customContextLength.takeIf { it > 0 }
+-                                    ?: chatModel?.contextLength?.takeIf { it > 0 }
+-                                Row(
+-                                    verticalAlignment = Alignment.CenterVertically,
+-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+-                                ) {
+-                                    Column(horizontalAlignment = Alignment.End) {
+-                                        if (conversation.messageNodes.isNotEmpty()) {
+-                                            Text(
+-                                                text = stringResource(R.string.chat_page_message_count, conversation.messageNodes.size),
+-                                                style = MaterialTheme.typography.labelMedium,
+-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                                            )
+-                                        }
+-                                        if (contextTokens != null && contextLength != null) {
+-                                            Text(
+-                                                text = "${contextTokens.formatNumber()} / ${contextLength.formatNumber()}",
+-                                                style = MaterialTheme.typography.labelSmall,
+-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                                            )
+-                                        }
+-                                    }
+-                                    if (contextTokens != null && contextLength != null) {
+-                                        ContextUsageRing(fraction = contextTokens.toFloat() / contextLength)
+-                                    }
+-                                }
+-                            },
+-                        ) {
+-                            Text(stringResource(R.string.chat_page_compress_context))
+-                        }
+-                    }
++                    // 压缩历史：独立小卡片，形态和上面附件按钮同族，不再是一根列表长条
++                    if (showCompress) {
++                        CompressEntryCard(
++                            conversation = conversation,
++                            settings = settings,
++                            chatModel = chatModel,
++                            onCompress = {
++                                onCompressContext(
++                                    settings.compressSetting.additionalPrompt,
++                                    settings.compressSetting.keepRecentMessages,
++                                    settings.compressSetting.modelId,
++                                )
++                                onDismiss()
++                            },
++                            onOpenSettings = { onShowCompressDialogChange(true) },
++                        )
++                    }
