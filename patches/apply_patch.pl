@@ -1,23 +1,38 @@
 #!/usr/bin/env perl
-# 极简 unified diff 应用器：只支持本仓库补丁用到的形式（-u, 无 rename），
-# 任何 hunk 上下文不匹配都会立刻报错。自动识别 CRLF/LF 并保留原换行风格。
-use strict; use warnings;
+# 极简 unified diff 应用器：只支持本仓库补丁用到的形式（-u, 无 rename）。
+# 任何 hunk 的上下文/删除行与目标不匹配都会立刻退出非 0，避免静默写坏文件。
+# 自动识别 CRLF/LF，并保持原文件的换行风格与结尾换行。
+use strict;
+use warnings;
 
 my ($patch_file, $target) = @ARGV;
-die "usage: apply_patch.pl <patch> <target>\n" unless $patch_file && $target;
+die "usage: apply_patch.pl <patch> <target>\n" unless defined $patch_file && defined $target;
 
-open(my $pf, '<', $patch_file) or die "open patch: $!\n";
-my @lines = <$pf>; close $pf;
-chomp @lines;
+sub slurp {
+    my ($path) = @_;
+    open(my $fh, '<', $path) or die "open $path: $!\n";
+    local $/ = undef;
+    my $text = <$fh>;
+    close $fh;
+    return defined $text ? $text : '';
+}
 
-open(my $tf, '<', $target) or die "open target: $!\n";
-my @t = <$tf>; close $tf;
-my $crlf = (@t > 0 && $t[0] =~ /\r\n$/) ? 1 : 0;
-s/\r$// for @t;
-chomp @t;
+my $patch_text = slurp($patch_file);
+my $target_text = slurp($target);
+
+my $crlf = ($target_text =~ /\r\n/) ? 1 : 0;
+my $ends_with_nl = ($target_text =~ /\n$/) ? 1 : 0;
+
+my @lines = split /\n/, $patch_text, -1;
+$_ =~ s/\r$// for @lines;
+pop @lines while @lines && $lines[-1] eq '';
+
+my @t = split /\n/, $target_text, -1;
+$_ =~ s/\r$// for @t;
+pop @t while @t && $t[-1] eq '';
 
 my @out;
-my $ti = 0;          # 当前已消费的目标行号(0-based)
+my $ti = 0;
 my $i = 0;
 my $hunks = 0;
 
@@ -28,22 +43,22 @@ while ($i < @lines) {
         my $old_start = $1;
         my $old_count = defined $2 ? $2 : 1;
         $hunks++;
-        my $src = $old_start - 1;      # 0-based
+        my $src = $old_start - 1;
         while ($ti < $src) { push @out, $t[$ti]; $ti++; }
         $i++;
         my $consumed = 0;
         while ($i < @lines && $consumed < $old_count) {
             my $h = $lines[$i];
             $i++;
-            if ($h =~ /^\\/) { next; }
+            next if $h =~ /^\\/;
             my $tag = substr($h, 0, 1);
             my $body = substr($h, 1);
             if ($tag eq ' ') {
-                die "CTX MISMATCH at target line ".($ti+1)."\n  want: $body\n  got : ".($t[$ti] // '<EOF>')."\n"
+                die "CTX MISMATCH at line " . ($ti + 1) . "\n  want: $body\n  got : " . ($t[$ti] // '<EOF>') . "\n"
                     unless ($t[$ti] // '') eq $body;
                 push @out, $t[$ti]; $ti++; $consumed++;
             } elsif ($tag eq '-') {
-                die "DEL MISMATCH at target line ".($ti+1)."\n  want: $body\n  got : ".($t[$ti] // '<EOF>')."\n"
+                die "DEL MISMATCH at line " . ($ti + 1) . "\n  want: $body\n  got : " . ($t[$ti] // '<EOF>') . "\n"
                     unless ($t[$ti] // '') eq $body;
                 $ti++; $consumed++;
             } elsif ($tag eq '+') {
@@ -59,8 +74,12 @@ while ($i < @lines) {
 
 while ($ti < @t) { push @out, $t[$ti]; $ti++; }
 
-open(my $of, '>', $target) or die "write: $!\n";
 my $nl = $crlf ? "\r\n" : "\n";
-print $of join($nl, @out), $nl;
+my $joined = join($nl, @out);
+$joined .= $nl if $ends_with_nl;
+
+open(my $of, '>', $target) or die "write $target: $!\n";
+print $of $joined;
 close $of;
-print "applied $hunks hunks -> $target (".scalar(@out)." lines)\n";
+
+print "applied $hunks hunks -> $target (" . scalar(@out) . " lines)\n";
