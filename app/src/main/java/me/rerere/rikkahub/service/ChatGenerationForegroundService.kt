@@ -70,6 +70,13 @@ class ChatGenerationForegroundService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // 任务被从最近列表划掉，进程随时会被杀：把还在内存里的会话同步落库，保住已生成的内容
+        runCatching { chatService.flushAllSessionsBlocking() }
+            .onFailure { Log.e(TAG, "flush on task removed failed", it) }
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_ACQUIRE -> acquire(intent, startId)
