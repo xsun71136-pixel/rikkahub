@@ -1,15 +1,18 @@
-# 轮 6 步骤 7b/7：补 PaddingValues 的 plus 运算符 import（插在 layout 包首个 import 之前）
+# 轮 6 步骤 7b：多 Key 页收尾。
+# 1) 补 PaddingValues 的 plus 运算符 import（07 生成的 contentPadding = innerPadding + ... 要用）；
+# 2) 调 8：把页面重新包回 Dialog —— 否则从 ProviderConfigure 的滚动 Column 内联调起时
+#    里面的 LazyColumn 会拿到无限高度约束而崩溃（详见 08 脚本头部注释）。
 set -euo pipefail
 perl - app/src/main/java/me/rerere/rikkahub/ui/pages/setting/components/MultiKeyConfig.kt <<'PERL'
 my $F = $ARGV[0];
 open(my $in, '<', $F) or die; local $/; my $s = <$in>; close $in;
 die "already patched\n" if index($s, "foundation.layout.plus") >= 0;
-
-# 找到 “import androidx.compose.foundation.layout.” 第一次出现的位置，插在它前面
+# 插在 layout 分区第一行 import 之前，保证分组整齐
 my $pos = index($s, "import androidx.compose.foundation.layout.");
 die "layout import anchor not found\n" if $pos < 0;
 substr($s, $pos, 0) = "import androidx.compose.foundation.layout.plus\n";
-
 open(my $o, '>', $F) or die; print $o $s; close $o;
 print "plus import inserted at byte $pos\n";
 PERL
+
+bash ci/r6/08-multikey-dialog.sh
