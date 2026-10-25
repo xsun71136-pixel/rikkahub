@@ -12,6 +12,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.completeWith
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,7 +24,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import me.rerere.ai.agent.AgentEvent
 import me.rerere.ai.agent.AgentFinishReason
@@ -229,6 +233,19 @@ class ChatService(
 
     fun getConversationJobs(): Flow<Map<Uuid, Job?>> = sessionManager.getConversationJobs()
 
+    /**
+     * 任务被从最近列表划掉时的最后落库机会：进程随时会被杀，同步把所有已加载会话写入数据库。
+     * 由 ChatGenerationForegroundService.onTaskRemoved 调用；Room 的 suspend DAO 内部会切到
+     * 自己的执行器线程，这里 runBlocking 不会触发主线程查询限制。
+     */
+    fun flushAllSessionsBlocking() {
+        sessionManager.snapshot().forEach { session ->
+            runCatching {
+                runBlocking(Dispatchers.IO) { session.flush() }
+            }.onFailure { Log.e(TAG, "flushAllSessionsBlocking: flush ${session.id} failed", it) }
+        }
+    }
+
     private fun launchGenerationJob(
         conversationId: Uuid,
         keepAliveInBackground: Boolean = true,
@@ -300,7 +317,7 @@ class ChatService(
         // settingsFlow 在启动初期还是占位值，固定配置必须基于真实设置
         val bound = conversation.bindConfig(settingsStore.awaitLoaded())
         if (bound !== conversation) conversationRepo.updateConversationConfig(bound)
-        // 进程崩溃/被杀可能留下思考未收尾的消息（生成中的内容靠生成期间的节流落库保住），
+        // 进程崩溃/被杀可能留下思考未收尾的消息（生成中的内容靠生成期间的定时落库保住），
         // 加载时统一收尾，避免一直显示"思考中"。只改内存，下次落库自然固化。
         return bound.copy(
             messageNodes = bound.messageNodes.map { node ->
@@ -613,7 +630,7 @@ class ChatService(
             val nodes = conversation.messageNodes
             val history = if (regenerateNodeId != null) {
                 val index = nodes.indexOfFirst { it.id == regenerateNodeId }
-                check(index != -1) { "Message node $regenerateNodeId not found" }
+                check(index != -1) { "Message node $nodeId not found" }
                 conversation.currentMessages.take(index)
             } else {
                 conversation.currentMessages
@@ -637,56 +654,67 @@ class ChatService(
 
             val (request, hooks) = requestFactory.createAgent(turn, history, session.processingStatus)
             var finishReason: AgentFinishReason? = null
-            // 生成期间的节流落库：取消和失败由 finishGeneration 兜底，进程崩溃/被杀时 finally 不会执行，
-            // 这里按间隔把已收到的内容写进数据库，崩溃后重启最多丢掉一个间隔的尾巴。
-            var lastPersistAt = 0L
-            try {
-                runAgent(request, hooks).flowOn(Dispatchers.IO).collect { event ->
-                    when (event) {
-                        is AgentEvent.MessageUpdated -> {
-                            // 生成过程中只有网络重试的提示会留着，收到新内容说明重试已经成功
-                            session.processingStatus.value = null
-                            session.update { it.upsertMessage(replyNodeId, event.message) }
-                            session.replyMessageId.value = event.message.id
-                            val now = System.currentTimeMillis()
-                            if (now - lastPersistAt >= GENERATION_PERSIST_INTERVAL_MS) {
-                                lastPersistAt = now
-                                // 落库失败不拖垮生成，结束时还有一次兜底保存
-                                runCatching { session.flush() }
-                                    .onFailure { Log.e(TAG, "runTurn: periodic persist failed", it) }
-                            }
-                            // 通知等边缘副作用由 ChatNotificationManager 消费；
-                            // tryEmit 不挂起，事件丢失只影响单次通知更新，不能反压生成链
-                            appEventBus.tryEmit(
-                                AppEvent.ChatGenerationUpdate(conversationId, event.message, senderName)
-                            )
-                        }
-
-                        is AgentEvent.Retrying -> {
-                            logRetry(event.attempt)
-                            session.processingStatus.value = retryStatus(event.attempt)
-                        }
-
-                        is AgentEvent.Finished -> {
-                            Log.i(TAG, "runTurn: finished (${event.reason})")
-                            finishReason = event.reason
-                        }
+            // 生成期间的兜底落库：取消和失败由 finishGeneration 收尾，进程崩溃/被杀时 finally 不会执行。
+            // 事件驱动会漏掉长时间无事件的窗口（工具执行、长思考），所以用并行定时器按间隔落库，
+            // 配合首次内容到达时的立即落库，把「进程被杀丢内容」的窗口压到最小。
+            coroutineScope {
+                val persistJob = launch {
+                    while (isActive) {
+                        delay(GENERATION_PERSIST_INTERVAL_MS)
+                        // 落库失败不拖垮生成，结束时还有一次兜底保存
+                        runCatching { session.flush() }
+                            .onFailure { Log.e(TAG, "runTurn: periodic persist failed", it) }
                     }
                 }
-            } finally {
-                withContext(NonCancellable) {
-                    session.processingStatus.value = null
-                    // 可能被取消了，或者意外结束，兜底保存
-                    val finished = session.finishGeneration()
-                    // 生成结束：取消 Live Update 通知，后台时发送完成通知
-                    appEventBus.emit(
-                        AppEvent.ChatGenerationEnded(
-                            conversationId = conversationId,
-                            senderName = senderName,
-                            contentPreview = finished.currentMessages.lastOrNull()
-                                ?.toText()?.take(50)?.trim() ?: "",
+                try {
+                    var firstChunkPersisted = false
+                    runAgent(request, hooks).flowOn(Dispatchers.IO).collect { event ->
+                        when (event) {
+                            is AgentEvent.MessageUpdated -> {
+                                // 生成过程中只有网络重试的提示会留着，收到新内容说明重试已经成功
+                                session.processingStatus.value = null
+                                session.update { it.upsertMessage(replyNodeId, event.message) }
+                                session.replyMessageId.value = event.message.id
+                                if (!firstChunkPersisted) {
+                                    // 首个内容块到达立即落库：用户消息+回复开头先固化
+                                    firstChunkPersisted = true
+                                    runCatching { session.flush() }
+                                        .onFailure { Log.e(TAG, "runTurn: first persist failed", it) }
+                                }
+                                // 通知等边缘副作用由 ChatNotificationManager 消费；
+                                // tryEmit 不挂起，事件丢失只影响单次通知更新，不能反压生成链
+                                appEventBus.tryEmit(
+                                    AppEvent.ChatGenerationUpdate(conversationId, event.message, senderName)
+                                )
+                            }
+
+                            is AgentEvent.Retrying -> {
+                                logRetry(event.attempt)
+                                session.processingStatus.value = retryStatus(event.attempt)
+                            }
+
+                            is AgentEvent.Finished -> {
+                                Log.i(TAG, "runTurn: finished (${event.reason})")
+                                finishReason = event.reason
+                            }
+                        }
+                    }
+                } finally {
+                    persistJob.cancel()
+                    withContext(NonCancellable) {
+                        session.processingStatus.value = null
+                        // 可能被取消了，或者意外结束，兜底保存
+                        val finished = session.finishGeneration()
+                        // 生成结束：取消 Live Update 通知，后台时发送完成通知
+                        appEventBus.emit(
+                            AppEvent.ChatGenerationEnded(
+                                conversationId = conversationId,
+                                senderName = senderName,
+                                contentPreview = finished.currentMessages.lastOrNull()
+                                    ?.toText()?.take(50)?.trim() ?: "",
+                            )
                         )
-                    )
+                    }
                 }
             }
 
