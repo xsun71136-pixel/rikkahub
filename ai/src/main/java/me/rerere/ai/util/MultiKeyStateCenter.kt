@@ -61,6 +61,7 @@ object MultiKeyStateCenter {
     }
 
     /** 某个 provider 的密钥状态（key 列表本身在 ProviderSetting.apiKey 里） */
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun statesFor(providerId: String): StateFlow<Map<String, MultiKeyState>> =
         object : StateFlow<Map<String, MultiKeyState>> {
             override val replayCache: List<Map<String, MultiKeyState>>

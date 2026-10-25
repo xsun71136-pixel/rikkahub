@@ -23,7 +23,7 @@ class ApiKeySplitTest {
 
     @Test
     fun `firstApiKey picks the first parsed key, falls back to trimmed raw`() {
-        assertEquals("sk-bbb", ProviderSetting.OpenAI(apiKey = "sk-aaa,sk-bbb").firstApiKey())
+        assertEquals("sk-aaa", ProviderSetting.OpenAI(apiKey = "sk-aaa,sk-bbb").firstApiKey())
         // 解析不出任何 key 时回退到原始字符串的 trim，请求照常发出由服务端报错
         assertEquals("", ProviderSetting.OpenAI(apiKey = "  ").firstApiKey())
     }
