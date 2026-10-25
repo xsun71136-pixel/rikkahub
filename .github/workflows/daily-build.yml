@@ -46,14 +46,13 @@ jobs:
           WDP=app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt
           FP=app/src/main/java/me/rerere/rikkahub/ui/components/ai/FilesPicker.kt
           git checkout 9f8861c6 -- "$CS" "$WDP"
-          # ChatService：R4（后台压缩） + R5（自动压缩触发点修复）
+          # ChatService：R4（后台压缩）+ R5（自动压缩触发点修复）
           perl patches/apply_patch.pl patches/0001-chatservice-compress.patch "$CS"
           perl patches/apply_patch.pl patches/0003-chatservice-autocompress-fix.patch "$CS"
           # WorkspaceDetailPage：R4 批量操作与 ZIP
           cat patches/0002-wdp-a.patch patches/0002-wdp-b.patch > /tmp/wdp.patch
           perl patches/apply_patch.pl /tmp/wdp.patch "$WDP"
-          # FilesPicker：R5 压缩入口拆分（基线 = master 当前版本）
-          git show HEAD:"$FP" > "$FP" 2>/dev/null || true
+          # FilesPicker：仓库里的版本仍是 R4 之前的，直接打 R5 补丁
           perl patches/apply_patch.pl patches/0004-filespicker-compress-entry.patch "$FP"
           echo '--- 校验 ---'
           grep -c 'onSessionGenerationFinished' "$CS"
@@ -107,7 +106,7 @@ jobs:
               {
                 "client_info": {
                   "mobilesdk_app_id": "1:100000000000:android:0000000000000000000000",
-                  "android_client_info": { "package_name": "me.rerere.rikkahub" }
+                  "android_client_Info": { "package_name": "me.rerere.rikkahub" }
                 },
                 "oauth_client": [],
                 "api_key": [{ "current_key": "AIzaCyCiPLaCeHoLdErKeYFoRuNsIgNeDbUiLd00" }],
