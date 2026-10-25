@@ -2,6 +2,9 @@
 # 极简 unified diff 应用器：只支持本仓库补丁用到的形式（-u, 无 rename）。
 # 任何 hunk 的上下文/删除行与目标不匹配都会立刻退出非 0，避免静默写坏文件。
 # 自动识别 CRLF/LF，并保持原文件的换行风格与结尾换行。
+#
+# v2 修复：diff 会把「在文件末尾追加」的 + 行排在最后一段上下文之后，
+# 旧版在 old_count 消费完就退出会丢掉这些行；现在按「消费完且下一行不是 +」判断结束。
 use strict;
 use warnings;
 
@@ -47,8 +50,10 @@ while ($i < @lines) {
         while ($ti < $src) { push @out, $t[$ti]; $ti++; }
         $i++;
         my $consumed = 0;
-        while ($i < @lines && $consumed < $old_count) {
+        while ($i < @lines) {
             my $h = $lines[$i];
+            my $tag0 = substr($h, 0, 1);
+            last if $consumed >= $old_count && $tag0 ne '+';
             $i++;
             next if $h =~ /^\\/;
             my $tag = substr($h, 0, 1);
