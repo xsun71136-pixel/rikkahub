@@ -1,0 +1,11 @@
+--- a/app/src/main/java/me/rerere/rikkahub/ui/components/ai/FilesPicker.kt
++++ b/app/src/main/java/me/rerere/rikkahub/ui/components/ai/FilesPicker.kt
+@@ -315,7 +315,7 @@
+                     if (showCompress) {
+                         SegmentedListItem(
+                             onClick = { onShowCompressDialogChange(true) },
+-                            shapes = ListItemDefaults.segmentedShapes(index = itemIndex++, count = itemCount),
++                            shapes = MaterialTheme.shapes.extraLarge,
+                             leadingContent = {
+                                 Icon(
+                                     imageVector = HugeIcons.Package01,
