@@ -1,0 +1,63 @@
+--- a/app/src/main/java/me/rerere/rikkahub/ui/components/ai/FilesPicker.kt
++++ b/app/src/main/java/me/rerere/rikkahub/ui/components/ai/FilesPicker.kt
+@@ -8,6 +8,7 @@
+ import androidx.compose.animation.slideInHorizontally
+ import androidx.compose.animation.slideOutHorizontally
+ import androidx.compose.animation.togetherWith
++import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.PaddingValues
+@@ -39,6 +40,7 @@
+ import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.graphics.vector.ImageVector
+ import androidx.compose.ui.res.stringResource
+ import androidx.compose.ui.text.style.TextOverflow
+@@ -315,7 +317,15 @@
+                     Spacer(Modifier.height(8.dp))
+                     if (showCompress) {
+                         SegmentedListItem(
+-                            onClick = { onShowCompressDialogChange(true) },
++                            onClick = {
++                                // 主体点击：按当前设置直接压缩，后台执行，聊天页显示迷你进度条
++                                onCompressContext(
++                                    settings.compressSetting.additionalPrompt,
++                                    settings.compressSetting.keepRecentMessages,
++                                    settings.compressSetting.modelId,
++                                )
++                                onDismiss()
++                            },
+                             shapes = MaterialTheme.shapes.extraLarge,
+                             leadingContent = {
+                                 Icon(
+@@ -353,6 +363,27 @@
+                                     if (contextTokens != null && contextLength != null) {
+                                         ContextUsageRing(fraction = contextTokens.toFloat() / contextLength)
+                                     }
++                                    // 设置入口：只打开配置面板，不触发压缩
++                                    Row(
++                                        modifier = Modifier
++                                            .clip(MaterialTheme.shapes.small)
++                                            .clickable { onShowCompressDialogChange(true) }
++                                            .padding(horizontal = 6.dp, vertical = 4.dp),
++                                        verticalAlignment = Alignment.CenterVertically,
++                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
++                                    ) {
++                                        Text(
++                                            text = stringResource(R.string.chat_page_compress_settings),
++                                            style = MaterialTheme.typography.labelLarge,
++                                            color = MaterialTheme.colorScheme.primary,
++                                        )
++                                        Icon(
++                                            imageVector = HugeIcons.ArrowRight01,
++                                            contentDescription = null,
++                                            modifier = Modifier.size(14.dp),
++                                            tint = MaterialTheme.colorScheme.primary,
++                                        )
++                                    }
+                                 }
+                             },
+                         ) {
