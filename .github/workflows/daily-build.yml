@@ -63,10 +63,11 @@ jobs:
           cat patches/0002-wdp-a.patch patches/0002-wdp-b.patch > /tmp/wdp.patch
           perl patches/apply_patch.pl /tmp/wdp.patch "$WDP"
 
-          # 轮 6 的 13 段改造脚本
+          # 轮 6 的 14 段改造脚本
           for s in 01-chatvm 02a-service 02b-service 03a-chatpage 03b-chatpage \
                    04a-filespicker 04b-filespicker 05-wdp \
-                   06a-autoretry 06b-autoretry 06c-autoretry 06d-autoretry 07-multikey; do
+                   06a-autoretry 06b-autoretry 06c-autoretry 06d-autoretry \
+                   07-multikey 07b-multikey-plus; do
             echo "=== $s ==="
             bash "ci/r6/$s.sh"
           done
