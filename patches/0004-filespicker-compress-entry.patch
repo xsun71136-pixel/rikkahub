@@ -1,19 +1,23 @@
 --- a/app/src/main/java/me/rerere/rikkahub/ui/components/ai/FilesPicker.kt
 +++ b/app/src/main/java/me/rerere/rikkahub/ui/components/ai/FilesPicker.kt
 @@ -8,6 +8,7 @@
+ import androidx.compose.animation.slideInHorizontally
+ import androidx.compose.animation.slideOutHorizontally
  import androidx.compose.animation.togetherWith
 +import androidx.compose.foundation.clickable
  import androidx.compose.foundation.layout.Arrangement
  import androidx.compose.foundation.layout.Column
  import androidx.compose.foundation.layout.PaddingValues
 @@ -39,6 +40,7 @@
+ import androidx.compose.runtime.setValue
  import androidx.compose.ui.Alignment
  import androidx.compose.ui.Modifier
 +import androidx.compose.ui.draw.clip
  import androidx.compose.ui.graphics.vector.ImageVector
  import androidx.compose.ui.res.stringResource
  import androidx.compose.ui.text.style.TextOverflow
-@@ -78,6 +80,8 @@
+@@ -76,6 +78,8 @@
+ import me.rerere.rikkahub.data.model.Conversation
  import me.rerere.rikkahub.data.model.lastContextTokens
  import me.rerere.rikkahub.data.repository.WorkspaceRepository
 +import me.rerere.rikkahub.ui.components.ui.CardGroup
@@ -21,7 +25,8 @@
  import me.rerere.rikkahub.ui.components.ui.ExtensionSelector
  import me.rerere.rikkahub.ui.context.LocalNavController
  import me.rerere.rikkahub.ui.context.LocalSettings
-@@ -219,9 +223,9 @@
+@@ -218,7 +222,8 @@
+                 val showMcp = settings.mcpServers.isNotEmpty()
                  // 限制了上下文消息数就是滚动上下文，旧消息会自动移出，不需要压缩
                  val showCompress = assistant.contextMessageLimit <= 0
 -                val itemCount = 2 + listOf(showWorkspace, showWorkspace && showCwd, showMcp, showCompress).count { it }
@@ -30,7 +35,7 @@
                  var itemIndex = 0
                  Column(
                      verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
-@@ -311,45 +315,85 @@
+@@ -309,52 +314,93 @@
                      ) {
                          Text(stringResource(R.string.assistant_page_tab_extensions))
                      }
