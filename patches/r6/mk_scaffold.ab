@@ -1,0 +1,73 @@
+
+            // 组 2：密钥列表
+            item {
+                CardGroup(
+                    title = {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.multi_key_section_keys),
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = stringResource(
+                                    R.string.multi_key_keys_summary,
+                                    availableCount,
+                                    pausedCount,
+                                    keys.size,
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                ) {
+                    if (keys.isEmpty()) {
+                        item(
+                            headlineContent = { Text(stringResource(R.string.multi_key_add_hint)) },
+                        )
+                    }
+                    keys.forEach { key ->
+                        item(
+                            leadingContent = {
+                                // 状态点：绿=可用 / 橙=暂停 / 灰=没用过
+                                val state = keyStates[key]
+                                val paused = state?.isPaused() == true
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            when {
+                                                paused -> MaterialTheme.extendColors.orange6
+                                                state == null -> MaterialTheme.colorScheme.outlineVariant
+                                                else -> MaterialTheme.extendColors.green6
+                                            }
+                                        ),
+                                )
+                            },
+                            supportingContent = {
+                                val state = keyStates[key]
+                                val paused = state?.isPaused() == true
+                                Text(
+                                    text = stringResource(R.string.multi_key_uses, state?.uses ?: 0) + " · " + when {
+                                        state != null && paused && state.pauseForever ->
+                                            stringResource(R.string.multi_key_paused_forever)
+
+                                        state != null && paused ->
+                                            stringResource(
+                                                R.string.multi_key_paused_until,
+                                                pauseTimeFormat.format(Date(state.pausedUntil)),
+                                            )
+
+                                        else -> stringResource(R.string.multi_key_available)
+                                    },
+                                    color = if (paused) {
+                                        MaterialTheme.extendColors.red6
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                )
+                            },
