@@ -127,7 +127,7 @@ class MultiKeyRaceProvider<T : ProviderSetting.ApiKey>(
         var jobFirst: Job? = null
         var jobSecond: Job? = null
 
-        suspend fun runLeg(index: Int, factory: () -> Flow<StreamChunk>) {
+        suspend fun runLeg(index: Int, factory: suspend () -> Flow<StreamChunk>) {
             try {
                 factory().collect { chunk ->
                     winner.compareAndSet(-1, index)
