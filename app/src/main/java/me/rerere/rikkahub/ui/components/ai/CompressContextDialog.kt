@@ -148,12 +148,12 @@ fun CompressContextDialog(
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Row(verticalAlignment = Alignment.Bottom) {
                                 Text(
-                                    text = formatTokenCount(contextTokens),
+                                    text = formatTokenCount(contextTokens.toLong()),
                                     style = MaterialTheme.typography.titleLarge,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
                                 Text(
-                                    text = " / ${formatTokenCount(contextLength)} · $currentPercent%",
+                                    text = " / ${formatTokenCount(contextLength.toLong())} · $currentPercent%",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(bottom = 2.dp),
