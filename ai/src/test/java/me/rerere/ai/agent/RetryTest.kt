@@ -160,4 +160,20 @@ class RetryTest {
         assertEquals("ok", result)
         assertEquals(2, calls)
     }
+
+    @Test
+    fun `retryable response exception is not retried by default network policy`() = runTest {
+        var calls = 0
+
+        // 默认策略只重试 IOException；响应内容重试必须由设置页显式开启（retryOn 放行）
+        val error = runCatching {
+            withRetry(RetryPolicy.NETWORK) {
+                calls++
+                throw RetryableResponseException("hit")
+            }
+        }.exceptionOrNull()
+
+        assertTrue(error is RetryableResponseException)
+        assertEquals(1, calls)
+    }
 }
