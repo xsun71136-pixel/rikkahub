@@ -38,7 +38,6 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      # 占位符大文件从基线提交取回真实内容，再按 13 段脚本改造
       - name: Restore patched sources
         run: |
           set -euxo pipefail
@@ -50,6 +49,7 @@ jobs:
           AR=app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingAutoRetryPage.kt
           MK=app/src/main/java/me/rerere/rikkahub/ui/pages/setting/components/MultiKeyConfig.kt
 
+          # master 上这 3 个是占位符，从基线提交取回真实内容
           for f in "$CS" "$WDP" "$FP"; do
             if [ "$(wc -c < "$f")" -lt 1000 ]; then
               echo "restore baseline: $f"
@@ -57,6 +57,13 @@ jobs:
             fi
           done
 
+          # 轮 1-5 的补丁（FilesPicker 由轮 6 的 04a/04b 整体改写，不再叠加）
+          perl patches/apply_patch.pl patches/0001-chatservice-compress.patch "$CS"
+          perl patches/apply_patch.pl patches/0003-chatservice-autocompress-fix.patch "$CS"
+          cat patches/0002-wdp-a.patch patches/0002-wdp-b.patch > /tmp/wdp.patch
+          perl patches/apply_patch.pl /tmp/wdp.patch "$WDP"
+
+          # 轮 6 的 13 段改造脚本
           for s in 01-chatvm 02a-service 02b-service 03a-chatpage 03b-chatpage \
                    04a-filespicker 04b-filespicker 05-wdp \
                    06a-autoretry 06b-autoretry 06c-autoretry 06d-autoretry 07-multikey; do
