@@ -87,9 +87,17 @@ class MultiKeyRaceProvider<T : ProviderSetting.ApiKey>(
         second: suspend () -> R,
     ): R = coroutineScope {
         val results = Channel<Result<R>>(capacity = 2)
+        // runCatching 会吃掉 CancellationException，导致取消变成一条假失败结果，必须显式传播
+        suspend fun runLeg(block: suspend () -> R): Result<R> = try {
+            Result.success(block())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            Result.failure(e)
+        }
         val jobs = listOf(
-            launch { results.send(runCatching { first() }) },
-            launch { results.send(runCatching { second() }) },
+            launch { results.send(runLeg(first)) },
+            launch { results.send(runLeg(second)) },
         )
         var lastError: Throwable? = null
         repeat(2) {
@@ -119,7 +127,7 @@ class MultiKeyRaceProvider<T : ProviderSetting.ApiKey>(
         var jobFirst: Job? = null
         var jobSecond: Job? = null
 
-        suspend fun runLeg(index: Int, factory: suspend () -> Flow<StreamChunk>) {
+        suspend fun runLeg(index: Int, factory: () -> Flow<StreamChunk>) {
             try {
                 factory().collect { chunk ->
                     winner.compareAndSet(-1, index)
