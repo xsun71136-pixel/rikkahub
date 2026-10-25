@@ -55,3 +55,30 @@
 +
      // 生成完成流
      private val _generationDoneFlow = MutableSharedFlow<Uuid>()
+     val generationDoneFlow: SharedFlow<Uuid> = _generationDoneFlow.asSharedFlow()
+@@ -949,19 +989,21 @@
+         if (settings.getAssistantOf(conversation).contextMessageLimit > 0) return
+         val tokens = conversation.lastContextTokens() ?: return
+         val model = settings.getChatModelOf(conversation) ?: return
+-        if (model.contextLength <= 0) return
+-        val percent = tokens.toDouble() / model.contextLength * 100
++        // 自定义上下文窗口优先：大窗口模型可以按更小的基准触发压缩
++        val effectiveContextLength = config.customContextLength.takeIf { it > 0 } ?: model.contextLength
++        if (effectiveContextLength <= 0) return
++        val percent = tokens.toDouble() / effectiveContextLength * 100
+         if (percent < config.thresholdPercent) return
+         Log.i(
+             TAG,
+-            "maybeAutoCompress: usage ${percent.toInt()}% reached ${config.thresholdPercent}%, compressing $conversationId"
++            "maybeAutoCompress: usage ${percent.toInt()}% reached ${config.thresholdPercent}% (base $effectiveContextLength), compressing $conversationId"
+         )
+-        compressConversation(
++        launchCompress(
+             conversationId = conversationId,
+             additionalPrompt = config.additionalPrompt,
+             keepRecentMessages = config.keepRecentMessages,
+             modelId = config.modelId,
+-        ).onFailure {
++        ) {
+             Log.w(TAG, "maybeAutoCompress: failed to compress $conversationId", it)
+         }
