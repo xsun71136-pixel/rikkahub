@@ -1,1 +1,0 @@
-                check(index != -1) { "Message node $regenerateNodeId not found" }
