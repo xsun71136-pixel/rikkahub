@@ -5,7 +5,7 @@
                          SegmentedListItem(
                              onClick = { onShowCompressDialogChange(true) },
 -                            shapes = ListItemDefaults.segmentedShapes(index = itemIndex++, count = itemCount),
-+                            shapes = MaterialTheme.shapes.extraLarge,
++                            shapes = ListItemDefaults.segmentedShapes(index = 0, count = 1),
                              leadingContent = {
                                  Icon(
                                      imageVector = HugeIcons.Package01,
