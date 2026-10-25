@@ -1,0 +1,190 @@
+--- a/app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt
++++ b/app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt
+@@ -82,6 +82,7 @@
+ import kotlinx.coroutines.CancellationException
+ import me.rerere.hugeicons.HugeIcons
+ import me.rerere.hugeicons.stroke.Alert02
++import me.rerere.hugeicons.stroke.Archive
+ import me.rerere.hugeicons.stroke.ArrowTurnBackward
+ import me.rerere.hugeicons.stroke.Bash
+ import me.rerere.hugeicons.stroke.Cancel01
+@@ -98,6 +99,7 @@
+ import me.rerere.hugeicons.stroke.FingerPrint
+ import me.rerere.hugeicons.stroke.Folder01
+ import me.rerere.hugeicons.stroke.FolderOpen
++import me.rerere.hugeicons.stroke.PackageOpen
+ import me.rerere.hugeicons.stroke.PencilEdit01
+ import me.rerere.hugeicons.stroke.Refresh01
+ import me.rerere.hugeicons.stroke.Settings03
+@@ -129,6 +131,9 @@
+ import me.rerere.rikkahub.utils.fileSizeToString
+ import me.rerere.rikkahub.utils.writeClipboardText
+ import me.rerere.ui.components.RikkaConfirmDialog
++import java.text.SimpleDateFormat
++import java.util.Date
++import java.util.Locale
+ import me.rerere.workspace.RootfsInstallProgress
+ import me.rerere.workspace.RootfsInstallStage
+ import me.rerere.workspace.WorkspaceFileEntry
+@@ -159,6 +164,8 @@
+     val settingsError by vm.settingsError.collectAsStateWithLifecycle()
+     val pagerState = rememberPagerState { WorkspaceDetailTab.entries.size }
+     var deleteTarget by remember { mutableStateOf<WorkspaceFileEntry?>(null) }
++    var batchDeleteTargets by remember { mutableStateOf<List<WorkspaceFileEntry>?>(null) }
++    var zipTargets by remember { mutableStateOf<List<WorkspaceFileEntry>?>(null) }
+     var showInstallDialog by remember { mutableStateOf(false) }
+     var previewImageUri by remember { mutableStateOf<String?>(null) }
+     val context = LocalContext.current
+@@ -306,6 +313,11 @@
+                             }
+                         },
+                         onDelete = { deleteTarget = it },
++                        onBatchDelete = { batchDeleteTargets = it },
++                        onCompress = { zipTargets = it },
++                        onExtractHere = { vm.extractZip(it, toSubfolder = false, cacheDir = context.cacheDir) },
++                        onExtractToFolder = { vm.extractZip(it, toSubfolder = true, cacheDir = context.cacheDir) },
++                        onCancelBulk = vm::cancelBulk,
+                         onBatchExport = { entries ->
+                             if (vm.prepareBatchExport(entries)) directoryExportLauncher.launch(null)
+                         },
+@@ -406,6 +418,78 @@
+             Text(stringResource(R.string.workspace_detail_will_delete, entry.path))
+         }
+     }
++
++    // 批量删除确认：列出前几个名字，含文件夹时警告内容会一并删除
++    batchDeleteTargets?.let { targets ->
++        val hasDirs = targets.any { it.isDirectory }
++        RikkaConfirmDialog(
++            show = true,
++            title = stringResource(R.string.workspace_detail_delete_batch_title, targets.size),
++            confirmText = stringResource(R.string.common_delete),
++            dismissText = stringResource(R.string.common_cancel),
++            onConfirm = {
++                vm.deleteEntries(targets)
++                batchDeleteTargets = null
++            },
++            onDismiss = { batchDeleteTargets = null },
++        ) {
++            Column {
++                Text(
++                    text = targets.take(3).joinToString("\n") { it.path } + if (targets.size > 3) "\n…" else "",
++                    style = MaterialTheme.typography.bodyMedium,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                )
++                if (hasDirs) {
++                    Text(
++                        text = stringResource(R.string.workspace_detail_delete_batch_dirs),
++                        style = MaterialTheme.typography.bodyMedium,
++                        color = MaterialTheme.colorScheme.error,
++                        modifier = Modifier.padding(top = 8.dp),
++                    )
++                }
++            }
++        }
++    }
++
++    // 压缩为 ZIP：命名后把选中项打包到当前目录（重名自动改名，不覆盖）
++    zipTargets?.let { targets ->
++        var zipName by remember(targets) {
++            mutableStateOf("归档-${SimpleDateFormat("yyyyMMdd-HHmm", Locale.getDefault()).format(Date())}.zip")
++        }
++        RikkaConfirmDialog(
++            show = true,
++            title = stringResource(R.string.workspace_detail_zip_action),
++            confirmText = stringResource(R.string.common_confirm),
++            dismissText = stringResource(R.string.common_cancel),
++            onConfirm = {
++                val finalName = zipName.trim().ifBlank { "archive.zip" }.let { name ->
++                    if (name.endsWith(".zip", ignoreCase = true)) name else "$name.zip"
++                }
++                vm.compressEntries(targets, finalName, context.cacheDir)
++                zipTargets = null
++            },
++            onDismiss = { zipTargets = null },
++        ) {
++            OutlinedTextField(
++                value = zipName,
++                onValueChange = { zipName = it },
++                singleLine = true,
++                label = { Text(stringResource(R.string.workspace_detail_zip_name_label)) },
++                modifier = Modifier.fillMaxWidth(),
++            )
++        }
++    }
++
++    // 批量操作结果
++    state.bulkResult?.let { result ->
++        AlertDialog(
++            onDismissRequest = vm::dismissBulkResult,
++            text = { Text(result) },
++            confirmButton = {
++                TextButton(onClick = vm::dismissBulkResult) { Text(stringResource(R.string.common_confirm)) }
++            },
++        )
++    }
+ }
+ 
+ @Composable
+@@ -712,13 +796,19 @@
+     onDelete: (WorkspaceFileEntry) -> Unit,
+     onExport: (WorkspaceFileEntry) -> Unit,
+     onBatchExport: (List<WorkspaceFileEntry>) -> Unit,
++    onBatchDelete: (List<WorkspaceFileEntry>) -> Unit,
++    onCompress: (List<WorkspaceFileEntry>) -> Unit,
++    onExtractHere: (WorkspaceFileEntry) -> Unit,
++    onExtractToFolder: (WorkspaceFileEntry) -> Unit,
++    onCancelBulk: () -> Unit,
+     onShare: (WorkspaceFileEntry) -> Unit,
+ ) {
+     var selecting by remember(state.area, state.path) { mutableStateOf(false) }
+     var selectedPaths by remember(state.area, state.path) { mutableStateOf(emptySet<String>()) }
+-    val files = state.entries.filterNot { it.isDirectory }
+-    val selectedFiles = files.filter { it.path in selectedPaths }
+-    val allSelected = files.isNotEmpty() && selectedFiles.size == files.size
++    // 多选不再只限文件：文件夹也能选（删除/压缩会递归处理）；批量导出仍只导文件（VM 里过滤）
++    val selectedEntries = state.entries.filter { it.path in selectedPaths }
++    val selectedFiles = selectedEntries.filterNot { it.isDirectory }
++    val allSelected = state.entries.isNotEmpty() && selectedPaths.size == state.entries.size
+     fun toggleSelection(entry: WorkspaceFileEntry) {
+         selectedPaths = if (entry.path in selectedPaths) selectedPaths - entry.path else selectedPaths + entry.path
+     }
+@@ -755,7 +845,13 @@
+                         path = state.path,
+                         canGoUp = state.path.isNotBlank(),
+                         onGoUp = onGoUp,
++                        // 多选入口：不用只靠长按发现
++                        onStartSelect = if (selecting || state.entries.isEmpty()) null else ({ selecting = true }),
+                     )
++                    // 批量操作进度（压缩/解压/删除），可取消
++                    state.bulk?.let { bulk ->
++                        BulkProgressCard(progress = bulk, onCancel = onCancelBulk)
++                    }
+                     // 刷新时保留现有列表, 只在顶部提示正在加载
+                     if (showLoading && state.entries.isNotEmpty()) {
+                         LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
+@@ -808,11 +904,14 @@
+                         selectedPaths = selectedPaths + entry.path
+                     },
+                     onOpen = {
+-                        if (selecting && !entry.isDirectory) toggleSelection(entry) else onOpen(entry)
++                        if (selecting) toggleSelection(entry) else onOpen(entry)
+                     },
+                     onDelete = { onDelete(entry) },
+                     onExport = { onExport(entry) },
+                     onShare = { onShare(entry) },
++                    onCompress = { onCompress(listOf(entry)) },
++                    onExtractHere = { onExtractHere(entry) },
++                    onExtractToFolder = { onExtractToFolder(entry) },
+                 )
+             }
+         }
+@@ -836,7 +935,7 @@
+                 trailingContent = {
+                     IconButton(
+                         onClick = {
+-                            selectedPaths = if (allSelected) emptySet() else files.map { it.path }.toSet()
++                            selectedPaths = if (allSelected) emptySet() else state.entries.map { it.path }.toSet()
+                         },
+                     ) {
+                         Icon(HugeIcons.CheckList, contentDescription = if (allSelected) "取消全选" else "全选")
