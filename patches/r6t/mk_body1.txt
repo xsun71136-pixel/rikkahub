@@ -1,0 +1,187 @@
+    // 全屏页而不是对话框：和「文件管理」「MCP」这些设置页同一骨架，密钥多了才放得下
+    Scaffold(
+        topBar = {
+            LargeFlexibleTopAppBar(
+                title = { Text(stringResource(R.string.setting_provider_page_multi_key)) },
+                subtitle = {
+                    Text(
+                        stringResource(
+                            R.string.setting_provider_page_multi_key_summary,
+                            strategyLabel(config.strategy),
+                            availableCount,
+                            keys.size,
+                        )
+                    )
+                },
+                navigationIcon = { BackButton() },
+                actions = {
+                    TextButton(onClick = onDismiss) {
+                        Text(stringResource(R.string.common_done))
+                    }
+                },
+                scrollBehavior = scrollBehavior,
+                colors = CustomColors.topBarColors,
+            )
+        },
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        containerColor = CustomColors.topBarColors.containerColor,
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding(),
+            contentPadding = innerPadding + PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            // 组 1：使用方式
+            item {
+                CardGroup(
+                    title = { Text(stringResource(R.string.multi_key_strategy)) },
+                ) {
+                    formItem {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ConnectedChoiceButtons(
+                                options = MultiKeyStrategy.entries,
+                                selected = config.strategy,
+                                onSelect = { onEdit(provider.withMultiKey(config.copy(strategy = it))) },
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            ) { strategy, selected ->
+                                ConnectedChoiceLabel(text = strategyLabel(strategy), selected = selected)
+                            }
+                            Text(
+                                text = strategyNote(config.strategy),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 组 2：密钥列表
+            item {
+                CardGroup(
+                    title = {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.multi_key_section_keys),
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = stringResource(
+                                    R.string.multi_key_keys_summary,
+                                    availableCount,
+                                    pausedCount,
+                                    keys.size,
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                ) {
+                    if (keys.isEmpty()) {
+                        item(
+                            headlineContent = { Text(stringResource(R.string.multi_key_add_hint)) },
+                        )
+                    }
+                    keys.forEach { key ->
+                        item(
+                            leadingContent = {
+                                // 状态点：绿=可用 / 橙=暂停 / 灰=没用过
+                                val state = keyStates[key]
+                                val paused = state?.isPaused() == true
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            when {
+                                                paused -> MaterialTheme.extendColors.orange6
+                                                state == null -> MaterialTheme.colorScheme.outlineVariant
+                                                else -> MaterialTheme.extendColors.green6
+                                            }
+                                        ),
+                                )
+                            },
+                            supportingContent = {
+                                val state = keyStates[key]
+                                val paused = state?.isPaused() == true
+                                Text(
+                                    text = stringResource(R.string.multi_key_uses, state?.uses ?: 0) + " · " + when {
+                                        state != null && paused && state.pauseForever ->
+                                            stringResource(R.string.multi_key_paused_forever)
+
+                                        state != null && paused ->
+                                            stringResource(
+                                                R.string.multi_key_paused_until,
+                                                pauseTimeFormat.format(Date(state.pausedUntil)),
+                                            )
+
+                                        else -> stringResource(R.string.multi_key_available)
+                                    },
+                                    color = if (paused) {
+                                        MaterialTheme.extendColors.red6
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                )
+                            },
+                            trailingContent = {
+                                if (keyStates[key]?.isPaused() == true) {
+                                    TextButton(onClick = { onRecoverKey(key) }) {
+                                        Text(stringResource(R.string.multi_key_recover))
+                                    }
+                                }
+                                IconButton(onClick = { onDeleteKey(key) }) {
+                                    Icon(
+                                        HugeIcons.Delete01,
+                                        contentDescription = stringResource(R.string.multi_key_delete),
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            },
+                            headlineContent = {
+                                Text(
+                                    text = maskKey(key),
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                            modifier = Modifier.animateItem(),
+                        )
+                    }
+                    formItem {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            OutlinedTextField(
+                                value = newKey,
+                                onValueChange = { newKey = it },
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text(stringResource(R.string.multi_key_add_hint)) },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                            )
+                            FilledTonalButton(
+                                onClick = {
+                                    if (newKey.isNotBlank()) {
+                                        editKeys(keys + newKey.trim())
+                                        newKey = ""
+                                    }
+                                },
+                                enabled = newKey.isNotBlank(),
+                            ) {
+                                Text(stringResource(R.string.multi_key_add))
+                            }
+                        }
+                    }
+                }
+            }
