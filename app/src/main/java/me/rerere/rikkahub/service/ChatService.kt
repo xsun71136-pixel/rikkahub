@@ -630,7 +630,7 @@ class ChatService(
             val nodes = conversation.messageNodes
             val history = if (regenerateNodeId != null) {
                 val index = nodes.indexOfFirst { it.id == regenerateNodeId }
-                check(index != -1) { "Message node $nodeId not found" }
+                check(index != -1) { "Message node $regenerateNodeId not found" }
                 conversation.currentMessages.take(index)
             } else {
                 conversation.currentMessages
