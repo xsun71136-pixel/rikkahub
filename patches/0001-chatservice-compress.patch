@@ -1,0 +1,72 @@
+--- a/app/src/main/java/me/rerere/rikkahub/service/ChatService.kt
++++ b/app/src/main/java/me/rerere/rikkahub/service/ChatService.kt
+@@ -189,6 +189,44 @@
+         _errors.value = emptyList()
+     }
+ 
++    // ---- 上下文压缩任务 ----
++    // 压缩在后台执行，聊天页通过 compressingIds 显示进度条并可取消；任务表只记当前在跑的
++    private val compressionJobs = java.util.concurrent.ConcurrentHashMap<Uuid, Job>()
++    private val _compressingIds = MutableStateFlow<Set<Uuid>>(emptySet())
++    val compressingIds: StateFlow<Set<Uuid>> = _compressingIds.asStateFlow()
++
++    fun isCompressing(conversationId: Uuid): Flow<Boolean> =
++        compressingIds.map { conversationId in it }.distinctUntilChanged()
++
++    fun cancelCompress(conversationId: Uuid) {
++        compressionJobs[conversationId]?.cancel()
++    }
++
++    /**
++     * 后台执行上下文压缩：同一对话重复调用会先取消旧任务。
++     * 取消不算失败（不会回调 onFailure）；手动/自动压缩共用此入口，状态统一可观测。
++     */
++    fun launchCompress(
++        conversationId: Uuid,
++        additionalPrompt: String,
++        keepRecentMessages: Int = 0,
++        modelId: Uuid? = null,
++        onFailure: (Throwable) -> Unit,
++    ): Job {
++        compressionJobs.remove(conversationId)?.cancel()
++        val job = appScope.launch {
++            compressConversation(conversationId, additionalPrompt, keepRecentMessages, modelId)
++                .onFailure { if (it !is CancellationException) onFailure(it) }
++        }
++        compressionJobs[conversationId] = job
++        _compressingIds.update { it + conversationId }
++        job.invokeOnCompletion {
++            compressionJobs.remove(conversationId, job)
++            _compressingIds.update { ids -> ids - conversationId }
++        }
++        return job
++    }
++
+     // 生成完成流
+     private val _generationDoneFlow = MutableSharedFlow<Uuid>()
+     val generationDoneFlow: SharedFlow<Uuid> = _generationDoneFlow.asSharedFlow()
+@@ -951,19 +989,21 @@
+         val tokens = conversation.lastContextTokens() ?: return
+         val model = settings.getChatModelOf(conversation) ?: return
+-        if (model.contextLength <= 0) return
+-        val percent = tokens.toDouble() / model.contextLength * 100
++        // 自定义上下文窗口优先：大窗口模型可以按更小的基准触发压缩
++        val effectiveContextLength = config.customContextLength.takeIf { it > 0 } ?: model.contextLength
++        if (effectiveContextLength <= 0) return
++        val percent = tokens.toDouble() / effectiveContextLength * 100
+         if (percent < config.thresholdPercent) return
+         Log.i(
+             TAG,
+-            "maybeAutoCompress: usage ${percent.toInt()}% reached ${config.thresholdPercent}%, compressing $conversationId"
++            "maybeAutoCompress: usage ${percent.toInt()}% reached ${config.thresholdPercent}% (base $effectiveContextLength), compressing $conversationId"
+         )
+-        compressConversation(
++        launchCompress(
+             conversationId = conversationId,
+             additionalPrompt = config.additionalPrompt,
+             keepRecentMessages = config.keepRecentMessages,
+             modelId = config.modelId,
+-        ).onFailure {
++        ) {
+             Log.w(TAG, "maybeAutoCompress: failed to compress $conversationId", it)
+         }
