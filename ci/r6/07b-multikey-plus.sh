@@ -2,6 +2,8 @@
 # 1) 补 PaddingValues 的 plus 运算符 import（07 生成的 contentPadding = innerPadding + ... 要用）；
 # 2) 调 8：把页面重新包回 Dialog —— 否则从 ProviderConfigure 的滚动 Column 内联调起时
 #    里面的 LazyColumn 会拿到无限高度约束而崩溃（详见 08 脚本头部注释）。
+# 3) 调 9：去掉 decorFitsSystemWindows（它会取消 Dialog 窗口的有限高度兜底）+ 给 LazyColumn 钉高度上限。
+# 4) 调 10：版本号打标 3.1.1-r7 / 195，方便确认机器上装的是哪次构建。
 set -euo pipefail
 perl - app/src/main/java/me/rerere/rikkahub/ui/pages/setting/components/MultiKeyConfig.kt <<'PERL'
 my $F = $ARGV[0];
@@ -16,3 +18,5 @@ print "plus import inserted at byte $pos\n";
 PERL
 
 bash ci/r6/08-multikey-dialog.sh
+bash ci/r6/09-multikey-insets.sh
+bash ci/r6/10-version.sh
