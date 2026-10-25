@@ -1,0 +1,13 @@
+--- a/app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingAutoRetryPage.kt
++++ b/app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingAutoRetryPage.kt
+@@ -134,6 +134,10 @@
+             // 重试策略
+             item {
+                 val delays = remember(config) { expectedDelays(config) }
++                CardGroup(
++                    modifier = Modifier.alpha(configAlpha),
++                    title = { Text(stringResource(R.string.setting_auto_retry_strategy_title)) },
++                ) {
+                     formItem {
+                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                             ConnectedChoiceButtons(
