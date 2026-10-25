@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 打磨轮 6 新增：压缩提示与入口卡片 / 多 Key 页面重排 -->
+<resources>
+  <string name="chat_page_compress_toast_success">上下文已压缩</string>
+  <string name="chat_page_compress_toast_success_auto">上下文已自动压缩</string>
+  <string name="chat_page_compress_toast_failure">压缩失败</string>
+  <string name="chat_page_compress_entry_desc">%1$d 条消息 · 点击立即压缩</string>
+</resources>
