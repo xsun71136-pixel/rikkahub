@@ -39,11 +39,12 @@ jobs:
           submodules: recursive
 
       # 恢复被 MCP 推送截断的大文件：从 9f8861c6 取回基线，再按顺序打补丁
-      - name: Restore patched large sources
+      - name: Restore patched sources
         run: |
           set -euxo pipefail
           CS=app/src/main/java/me/rerere/rikkahub/service/ChatService.kt
           WDP=app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt
+          FP=app/src/main/java/me/rerere/rikkahub/ui/components/ai/FilesPicker.kt
           git checkout 9f8861c6 -- "$CS" "$WDP"
           # ChatService：R4（后台压缩）+ R5（自动压缩触发点修复）
           perl patches/apply_patch.pl patches/0001-chatservice-compress.patch "$CS"
@@ -51,11 +52,18 @@ jobs:
           # WorkspaceDetailPage：R4 批量操作与 ZIP
           cat patches/0002-wdp-a.patch patches/0002-wdp-b.patch > /tmp/wdp.patch
           perl patches/apply_patch.pl /tmp/wdp.patch "$WDP"
+          # FilesPicker：R5 压缩历史独立成卡 + 入口拆分（顺序敏感，勿调换）
+          perl patches/apply_patch.pl patches/0005-fp-itemcount.patch "$FP"
+          perl patches/apply_patch.pl patches/0006-fp-standalone-shape.patch "$FP"
+          perl patches/apply_patch.pl patches/0007-fp-spacer.patch "$FP"
+          perl patches/apply_patch.pl patches/0008-fp-split-entry.patch "$FP"
           echo '--- 校验 ---'
           grep -c 'onSessionGenerationFinished' "$CS"
           grep -c 'launchCompress' "$CS"
           grep -c 'BulkProgressCard' "$WDP"
-          wc -l "$CS" "$WDP"
+          grep -c 'chat_page_compress_settings' "$FP"
+          grep -c 'onCompressContext(' "$FP"
+          wc -l "$CS" "$WDP" "$FP"
 
       - name: Set up JDK
         uses: actions/setup-java@v4
