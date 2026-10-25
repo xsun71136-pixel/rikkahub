@@ -1,0 +1,184 @@
+@@ -855,6 +954,27 @@
+                     Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                     Text("导出 (${selectedFiles.size})")
+                 }
++                // 压缩为 ZIP（文件和文件夹都可以）
++                IconButton(
++                    onClick = { onCompress(selectedEntries) },
++                    enabled = selectedEntries.isNotEmpty() && state.bulk == null,
++                ) {
++                    Icon(
++                        HugeIcons.Archive,
++                        contentDescription = stringResource(R.string.workspace_detail_zip_action),
++                    )
++                }
++                // 批量删除
++                IconButton(
++                    onClick = { onBatchDelete(selectedEntries) },
++                    enabled = selectedEntries.isNotEmpty() && state.bulk == null,
++                ) {
++                    Icon(
++                        HugeIcons.Delete01,
++                        contentDescription = stringResource(R.string.common_delete),
++                        tint = MaterialTheme.colorScheme.error,
++                    )
++                }
+             }
+         }
+     }
+@@ -895,6 +1015,7 @@
+     path: String,
+     canGoUp: Boolean,
+     onGoUp: () -> Unit,
++    onStartSelect: (() -> Unit)? = null,
+ ) {
+     Surface(
+         modifier = Modifier.fillMaxWidth(),
+@@ -902,7 +1023,12 @@
+         color = CustomColors.listItemColors.containerColor,
+     ) {
+         Row(
+-            modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 4.dp, end = 20.dp),
++            modifier = Modifier.padding(
++                start = 4.dp,
++                top = 4.dp,
++                bottom = 4.dp,
++                end = if (onStartSelect != null) 4.dp else 20.dp,
++            ),
+             verticalAlignment = Alignment.CenterVertically,
+             horizontalArrangement = Arrangement.spacedBy(8.dp),
+         ) {
+@@ -922,6 +1048,69 @@
+                 // 路径太长时省略开头，当前所在的目录始终看得到
+                 overflow = TextOverflow.StartEllipsis,
+             )
++            // 多选入口（长按也能进，这里放个看得见摸得着的）
++            if (onStartSelect != null) {
++                FilledTonalIconButton(onClick = onStartSelect) {
++                    Icon(
++                        HugeIcons.CheckList,
++                        contentDescription = stringResource(R.string.workspace_detail_select_files),
++                    )
++                }
++            }
++        }
++    }
++}
++
++/** 批量操作进度卡：操作名 + n/m + 当前文件名 + 进度条 + 取消 */
++@Composable
++private fun BulkProgressCard(
++    progress: BulkProgress,
++    onCancel: () -> Unit,
++) {
++    Surface(
++        modifier = Modifier.fillMaxWidth(),
++        shape = RoundedCornerShape(20.dp),
++        color = CustomColors.listItemColors.containerColor,
++    ) {
++        Column(
++            modifier = Modifier.padding(16.dp),
++            verticalArrangement = Arrangement.spacedBy(10.dp),
++        ) {
++            Row(verticalAlignment = Alignment.CenterVertically) {
++                Text(
++                    text = stringResource(
++                        when (progress.op) {
++                            BulkOp.COMPRESS -> R.string.workspace_detail_op_compressing
++                            BulkOp.EXTRACT -> R.string.workspace_detail_op_extracting
++                            BulkOp.DELETE -> R.string.workspace_detail_op_deleting
++                        }
++                    ) + if (progress.total > 0) " ${progress.done}/${progress.total}" else "",
++                    style = MaterialTheme.typography.bodyMedium,
++                    modifier = Modifier.weight(1f),
++                    maxLines = 1,
++                    overflow = TextOverflow.Ellipsis,
++                )
++                TextButton(onClick = onCancel) {
++                    Text(stringResource(R.string.common_cancel))
++                }
++            }
++            if (progress.currentName.isNotEmpty()) {
++                Text(
++                    text = progress.currentName,
++                    style = MaterialTheme.typography.bodySmall,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                    maxLines = 1,
++                    overflow = TextOverflow.Ellipsis,
++                )
++            }
++            if (progress.total > 0) {
++                LinearWavyProgressIndicator(
++                    progress = { progress.done.toFloat() / progress.total },
++                    modifier = Modifier.fillMaxWidth(),
++                )
++            } else {
++                LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
++            }
+         }
+     }
+ }
+@@ -967,6 +1156,9 @@
+     onDelete: () -> Unit,
+     onExport: () -> Unit,
+     onShare: () -> Unit,
++    onCompress: () -> Unit,
++    onExtractHere: () -> Unit,
++    onExtractToFolder: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     val isImage = !entry.isDirectory && entry.detectFileType() == WorkspaceFileType.IMAGE
+@@ -1001,8 +1193,9 @@
+             .clip(shape)
+             .combinedClickable(
+                 onClick = onOpen,
+-                onLongClick = if (entry.isDirectory) null else onLongClick,
+-                onLongClickLabel = if (entry.isDirectory) null else "选择文件",
++                // 文件夹也可以长按进入多选（批量删除/压缩会用到）
++                onLongClick = onLongClick,
++                onLongClickLabel = "选择",
+             ),
+         shape = shape,
+         color = containerColor,
+@@ -1090,9 +1283,7 @@
+                     modifier = Modifier.size(48.dp),
+                     contentAlignment = Alignment.Center,
+                 ) {
+-                    if (!entry.isDirectory) {
+-                        Checkbox(checked = selected, onCheckedChange = null)
+-                    }
++                    Checkbox(checked = selected, onCheckedChange = null)
+                 }
+             } else {
+                 val context = LocalContext.current
+@@ -1129,6 +1320,30 @@
+                                 )
+                             )
+                         }
++                        // 压缩/解压：任何条目都能单独打包；zip 文件可以解压到当前目录或同名文件夹
++                        add(
++                            ItemAction(
++                                text = stringResource(R.string.workspace_detail_zip_action),
++                                icon = HugeIcons.Archive,
++                                onClick = onCompress,
++                            )
++                        )
++                        if (!entry.isDirectory && entry.name.endsWith(".zip", ignoreCase = true)) {
++                            add(
++                                ItemAction(
++                                    text = stringResource(R.string.workspace_detail_unzip_here),
++                                    icon = HugeIcons.PackageOpen,
++                                    onClick = onExtractHere,
++                                )
++                            )
++                            add(
++                                ItemAction(
++                                    text = stringResource(R.string.workspace_detail_unzip_folder),
++                                    icon = HugeIcons.PackageOpen,
++                                    onClick = onExtractToFolder,
++                                )
++                            )
++                        }
+                         add(
+                             ItemAction(
+                                 text = stringResource(R.string.common_delete),
