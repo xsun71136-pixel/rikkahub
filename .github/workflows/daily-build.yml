@@ -52,7 +52,7 @@ jobs:
           # WorkspaceDetailPage：R4 批量操作与 ZIP
           cat patches/0002-wdp-a.patch patches/0002-wdp-b.patch > /tmp/wdp.patch
           perl patches/apply_patch.pl /tmp/wdp.patch "$WDP"
-          # FilesPicker：R5 压缩历史独立成卡 + 入口拆分（顺序敏感，勿调换）
+          # FilesPicker：R5 压缩历史独立成卡 + 入口拆分（四步顺序敏感）
           perl patches/apply_patch.pl patches/0005-fp-itemcount.patch "$FP"
           perl patches/apply_patch.pl patches/0006-fp-standalone-shape.patch "$FP"
           perl patches/apply_patch.pl patches/0007-fp-spacer.patch "$FP"
