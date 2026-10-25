@@ -6,6 +6,9 @@
   <string name="chat_page_compress_ctx_custom">Custom</string>
   <string name="chat_page_compressing_banner">Compressing context…</string>
   <string name="chat_page_compress_cancel">Cancel compression</string>
+  <string name="chat_page_compress_now">Compress</string>
+  <string name="chat_page_compress_now_desc">Tap to compress with current settings</string>
+  <string name="chat_page_compress_settings">Settings</string>
 
   <string name="multi_key_keys_summary">%1$d available · %2$d paused · %3$d total</string>
   <string name="multi_key_rules_summary">%1$s · %2$d rules</string>

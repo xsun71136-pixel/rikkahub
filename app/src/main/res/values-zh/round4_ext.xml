@@ -6,19 +6,22 @@
   <string name="chat_page_compress_ctx_custom">自定义</string>
   <string name="chat_page_compressing_banner">正在压缩上下文…</string>
   <string name="chat_page_compress_cancel">取消压缩</string>
+  <string name="chat_page_compress_now">立即压缩</string>
+  <string name="chat_page_compress_now_desc">点击按当前设置压缩</string>
+  <string name="chat_page_compress_settings">设置</string>
 
   <string name="multi_key_keys_summary">%1$d 可用 · %2$d 暂停 · 共 %3$d</string>
   <string name="multi_key_rules_summary">%1$s · %2$d 条规则</string>
   <string name="multi_key_expand">展开</string>
   <string name="multi_key_collapse">收起</string>
 
-  <string name="workspace_detail_select_files">多选</string>
+  <string name="workspace_detail_select_files">选择</string>
   <string name="workspace_detail_zip_action">压缩为 ZIP</string>
   <string name="workspace_detail_unzip_here">解压到当前目录</string>
   <string name="workspace_detail_unzip_folder">解压到同名文件夹</string>
   <string name="workspace_detail_zip_name_label">文件名</string>
-  <string name="workspace_detail_delete_batch_title">删除 %1$d 项？</string>
-  <string name="workspace_detail_delete_batch_dirs">包含文件夹，其中的内容会一并删除</string>
+  <string name="workspace_detail_delete_batch_title">删除 %1$d 个条目？</string>
+  <string name="workspace_detail_delete_batch_dirs">包含文件夹 — 其中的内容也会一并删除</string>
   <string name="workspace_detail_op_compressing">正在压缩…</string>
   <string name="workspace_detail_op_extracting">正在解压…</string>
   <string name="workspace_detail_op_deleting">正在删除…</string>
