@@ -1,0 +1,110 @@
+
+/**
+ * 压缩历史入口卡片：附件按钮那一族的小卡片（不是列表长条）。
+ *
+ * 左边圆形图标 + 标题/说明，右边用量环 + 「设置 ›」。
+ * 点卡片主体=按当前设置立即压缩；点右侧「设置」只打开配置面板。
+ */
+@Composable
+private fun CompressEntryCard(
+    conversation: Conversation,
+    settings: Settings,
+    chatModel: Model?,
+    onCompress: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    val contextTokens = remember(conversation.messageNodes) { conversation.lastContextTokens() }
+    // 和压缩对话框同一基准：自定义上下文窗口优先，其次模型窗口
+    val contextLength = settings.compressSetting.customContextLength.takeIf { it > 0 }
+        ?: chatModel?.contextLength?.takeIf { it > 0 }
+    val fraction = if (contextTokens != null && contextLength != null) {
+        (contextTokens.toFloat() / contextLength).coerceIn(0f, 1f)
+    } else {
+        null
+    }
+
+    Surface(
+        onClick = onCompress,
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = HugeIcons.Package01,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.chat_page_compress_context),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    text = if (conversation.messageNodes.isNotEmpty()) {
+                        stringResource(
+                            R.string.chat_page_compress_entry_desc,
+                            conversation.messageNodes.size,
+                        )
+                    } else {
+                        stringResource(R.string.chat_page_compress_now_desc)
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            // 用量：K 数 + 环（接近上限变色）
+            if (contextTokens != null && contextLength != null && fraction != null) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        text = "${contextTokens.formatNumber()}/${contextLength.formatNumber()}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    ContextUsageRing(fraction = fraction, size = 20.dp)
+                }
+            }
+            // 设置入口：自己吃掉点击，不触发压缩
+            Row(
+                modifier = Modifier
+                    .clip(MaterialTheme.shapes.large)
+                    .clickable(onClick = onOpenSettings)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.chat_page_compress_settings),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Icon(
+                    imageVector = HugeIcons.ArrowRight01,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+}
