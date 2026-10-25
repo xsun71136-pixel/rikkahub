@@ -38,7 +38,7 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      # 恢复两个被 MCP 截断的大文件：从成功构建过的提交取回基线，再依次打补丁
+      # 恢复两个被 MCP 截断的大文件：从 9f8861c6 取回基线，再打补丁
       - name: Restore patched large sources
         run: |
           set -euxo pipefail
@@ -46,7 +46,6 @@ jobs:
           WDP=app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt
           git checkout 9f8861c6 -- "$CS" "$WDP"
           perl patches/apply_patch.pl patches/0001-chatservice-compress.patch "$CS"
-          perl patches/apply_patch.pl patches/0001b-chatservice-autocompress.patch "$CS"
           cat patches/0002-wdp-a.patch patches/0002-wdp-b.patch > /tmp/wdp.patch
           perl patches/apply_patch.pl /tmp/wdp.patch "$WDP"
           echo '--- 校验 ---'
