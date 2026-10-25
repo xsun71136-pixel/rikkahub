@@ -1,0 +1,173 @@
+--- a/app/src/main/java/me/rerere/rikkahub/ui/components/ai/FilesPicker.kt
++++ b/app/src/main/java/me/rerere/rikkahub/ui/components/ai/FilesPicker.kt
+@@ -8,6 +8,7 @@
+ import androidx.compose.animation.togetherWith
++import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.PaddingValues
+@@ -39,6 +40,7 @@
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.graphics.vector.ImageVector
+ import androidx.compose.ui.res.stringResource
+ import androidx.compose.ui.text.style.TextOverflow
+@@ -78,6 +80,8 @@
+ import me.rerere.rikkahub.data.model.lastContextTokens
+ import me.rerere.rikkahub.data.repository.WorkspaceRepository
++import me.rerere.rikkahub.ui.components.ui.CardGroup
++import me.rerere.rikkahub.ui.components.ui.CardGroupIcon
+ import me.rerere.rikkahub.ui.components.ui.ExtensionSelector
+ import me.rerere.rikkahub.ui.context.LocalNavController
+ import me.rerere.rikkahub.ui.context.LocalSettings
+@@ -219,9 +223,9 @@
+                 // 限制了上下文消息数就是滚动上下文，旧消息会自动移出，不需要压缩
+                 val showCompress = assistant.contextMessageLimit <= 0
+-                val itemCount = 2 + listOf(showWorkspace, showWorkspace && showCwd, showMcp, showCompress).count { it }
++                // 搜索 / 工作区 / CWD / MCP / 扩展：压缩历史不在这个分段里，单独一张卡片
++                val itemCount = 2 + listOf(showWorkspace, showWorkspace && showCwd, showMcp).count { it }
+                 var itemIndex = 0
+                 Column(
+                     verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+@@ -311,45 +315,85 @@
+                     ) {
+                         Text(stringResource(R.string.assistant_page_tab_extensions))
+                     }
++                }
+ 
+-                    // Compress History Button
+-                    if (showCompress) {
+-                        SegmentedListItem(
+-                            onClick = { onShowCompressDialogChange(true) },
+-                            shapes = ListItemDefaults.segmentedShapes(index = itemIndex++, count = itemCount),
+-                            leadingContent = {
+-                                Icon(
+-                                    imageVector = HugeIcons.Package01,
+-                                    contentDescription = null,
+-                                )
+-                            },
+-                            trailingContent = {
+-                                val contextTokens = remember(conversation.messageNodes) {
+-                                    conversation.lastContextTokens()
+-                                }
+-                                val contextLength = chatModel?.contextLength?.takeIf { it > 0 }
+-                                Row(
+-                                    verticalAlignment = Alignment.CenterVertically,
+-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+-                                ) {
+-                                    Column(horizontalAlignment = Alignment.End) {
+-                                        if (conversation.messageNodes.isNotEmpty()) {
+-                                            Text(
+-                                                text = stringResource(R.string.chat_page_message_count, conversation.messageNodes.size),
+-                                                style = MaterialTheme.typography.labelMedium,
+-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                                            )
+-                                        }
+-                                        if (contextTokens != null && contextLength != null) {
+-                                            Text(
+-                                                text = "${contextTokens.formatNumber()} / ${contextLength.formatNumber()}",
+-                                                style = MaterialTheme.typography.labelSmall,
+-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                                            )
+-                                        }
+-                                    }
+-                                    if (contextTokens != null && contextLength != null) {
+-                                        ContextUsageRing(fraction = contextTokens.toFloat() / contextLength)
+-                                    }
+-                                }
+-                            },
+-                        ) {
+-                            Text(stringResource(R.string.chat_page_compress_context))
+-                        }
+-                    }
++                // 压缩历史：独立一张卡片，不再混进上面的分段列表。
++                // 点条目主体 = 按当前设置立即压缩；点右侧「设置」= 打开配置面板。
++                if (showCompress) {
++                    val contextTokens = remember(conversation.messageNodes) {
++                        conversation.lastContextTokens()
++                    }
++                    val contextLength = (
++                        settings.compressSetting.customContextLength.takeIf { it > 0 }
++                            ?: chatModel?.contextLength?.takeIf { it > 0 }
++                        )
++                    CardGroup {
++                        formItem(
++                            headlineContent = { Text(stringResource(R.string.chat_page_compress_context)) },
++                            supportingContent = {
++                                Text(stringResource(R.string.chat_page_compress_now_desc))
++                            },
++                            leadingContent = { CardGroupIcon(HugeIcons.Package01) },
++                            trailingContent = {
++                                Row(
++                                    verticalAlignment = Alignment.CenterVertically,
++                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
++                                ) {
++                                    if (contextTokens != null && contextLength != null) {
++                                        ContextUsageRing(
++                                            fraction = contextTokens.toFloat() / contextLength
++                                        )
++                                    }
++                                    // 设置入口：只负责打开配置面板，不会触发压缩
++                                    Row(
++                                        modifier = Modifier
++                                            .clip(MaterialTheme.shapes.small)
++                                            .clickable { onShowCompressDialogChange(true) }
++                                            .padding(horizontal = 8.dp, vertical = 6.dp),
++                                        verticalAlignment = Alignment.CenterVertically,
++                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
++                                    ) {
++                                        Text(
++                                            text = stringResource(R.string.chat_page_compress_settings),
++                                            style = MaterialTheme.typography.labelLarge,
++                                            color = MaterialTheme.colorScheme.primary,
++                                        )
++                                        Icon(
++                                            imageVector = HugeIcons.ArrowRight01,
++                                            contentDescription = null,
++                                            modifier = Modifier.size(16.dp),
++                                            tint = MaterialTheme.colorScheme.primary,
++                                        )
++                                    }
++                                }
++                            },
++                        ) {
++                            // 主体区域：整块可点，点一下直接压缩
++                            Row(
++                                modifier = Modifier
++                                    .fillMaxWidth()
++                                    .clip(MaterialTheme.shapes.medium)
++                                    .clickable {
++                                        // 用当前设置直接压缩，压缩在后台执行，聊天页显示迷你进度条
++                                        onCompressContext(
++                                            settings.compressSetting.additionalPrompt,
++                                            settings.compressSetting.keepRecentMessages,
++                                            settings.compressSetting.modelId,
++                                        )
++                                        onDismiss()
++                                    }
++                                    .padding(vertical = 6.dp),
++                                verticalAlignment = Alignment.CenterVertically,
++                                horizontalArrangement = Arrangement.spacedBy(8.dp),
++                            ) {
++                                Text(
++                                    text = if (contextTokens != null && contextLength != null) {
++                                        "${contextTokens.formatNumber()} / ${contextLength.formatNumber()}"
++                                    } else {
++                                        stringResource(R.string.chat_page_message_count, conversation.messageNodes.size)
++                                    },
++                                    style = MaterialTheme.typography.labelMedium,
++                                    color = MaterialTheme.colorScheme.primary,
++                                    modifier = Modifier.weight(1f),
++                                )
++                                Text(
++                                    text = stringResource(R.string.chat_page_compress_now),
++                                    style = MaterialTheme.typography.labelLarge,
++                                    color = MaterialTheme.colorScheme.primary,
++                                )
++                            }
++                        }
++                    }
+                 }
+             }
+         }

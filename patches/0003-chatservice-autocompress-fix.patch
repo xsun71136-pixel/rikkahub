@@ -1,0 +1,71 @@
+--- a/app/src/main/java/me/rerere/rikkahub/service/ChatService.kt
++++ b/app/src/main/java/me/rerere/rikkahub/service/ChatService.kt
+@@ -239,6 +239,12 @@
+         if (session.state.value.isAwaitingToolApproval) {
+             session.messageQueue.failReplyWaiters(context.getString(R.string.chat_page_voice_tool_approval))
+         }
++        // 自动压缩必须在这里触发：本回调由 setJob 的 invokeOnCompletion 调用，此时生成任务已置空，
++        // 不会像在 runTurn 内部那样被「生成中」判断拦掉。
++        // 只在正常结束（非取消、非错误）时检查；队列里还有消息时下一轮结束会再检查。
++        if (cause == null && !session.state.value.isAwaitingToolApproval) {
++            appScope.launch { maybeAutoCompress(session.id) }
++        }
+         appScope.launch { dispatchNextQueuedMessage(session.id) }
+     }
+ 
+@@ -764,7 +770,8 @@
+                 sessionManager.launchWithSession(conversationId) { generateTitle(conversationId) }
+                 sessionManager.launchWithSession(conversationId) { generateSuggestion(conversationId) }
+                 if (turn.assistant.enableMemory) memoryConsolidationScheduler.onTurnFinished(session.state.value)
+-                sessionManager.launchWithSession(conversationId) { maybeAutoCompress(conversationId) }
++                // 自动压缩不在这里做：此时本轮生成任务还活着，会被「生成中」判断拦掉。
++                // 统一由 onSessionGenerationFinished 在生成任务结束后触发。
+             }
+             return TurnResult.Finished(reason)
+         } catch (e: CancellationException) {
+@@ -975,25 +982,40 @@
+     /**
+      * 自动压缩：一轮结束后检查上下文占用，达到设置的比例就按压缩设置自动压缩。
+      *
+-     * 刚压缩过的会话（检查点是最后一条）占用的上下文用量为空，不会重复触发；消息队列里还有
+-     * 排队的消息时跳过，等下一轮结束再检查；失败只记日志，下轮对话占用仍超阈值时会再试。
++     * 由 [onSessionGenerationFinished] 在生成任务结束后调用（此时 [ConversationSession.getJob] 已置空）。
++     * 刚压缩过的会话（检查点是最后一条）占用的上下文用量为空，不会重复触发；
++     * 消息队列里还有排队的消息时跳过，等下一轮结束再检查；失败只记日志，下轮仍超阈值时会再试。
+      */
+     private suspend fun maybeAutoCompress(conversationId: Uuid) {
+         val settings = settingsStore.awaitLoaded()
+         val config = settings.compressSetting
+         if (!config.autoCompress) return
+         val session = sessionManager.get(conversationId) ?: return
+-        if (session.isGenerating) return
++        // 已被新一轮生成接管（队列立即发出下一条）时跳过，那一轮结束时会再检查
++        if (session.getJob() != null) {
++            Log.i(TAG, "maybeAutoCompress: skipped, generation started again for $conversationId")
++            return
++        }
+         val conversation = session.state.value
+         // 限制了上下文消息数的是滚动上下文，旧消息会自动移出，不需要压缩（同聊天页入口的显隐条件）
+         if (settings.getAssistantOf(conversation).contextMessageLimit > 0) return
+-        val tokens = conversation.lastContextTokens() ?: return
++        val tokens = conversation.lastContextTokens()
++        if (tokens == null) {
++            Log.i(TAG, "maybeAutoCompress: skipped, no usage data for $conversationId")
++            return
++        }
+         val model = settings.getChatModelOf(conversation) ?: return
+         // 自定义上下文窗口优先：大窗口模型可以按更小的基准触发压缩
+         val effectiveContextLength = config.customContextLength.takeIf { it > 0 } ?: model.contextLength
+         if (effectiveContextLength <= 0) return
+         val percent = tokens.toDouble() / effectiveContextLength * 100
+-        if (percent < config.thresholdPercent) return
++        if (percent < config.thresholdPercent) {
++            Log.d(
++                TAG,
++                "maybeAutoCompress: usage ${percent.toInt()}% below ${config.thresholdPercent}% for $conversationId"
++            )
++            return
++        }
+         Log.i(
+             TAG,
+             "maybeAutoCompress: usage ${percent.toInt()}% reached ${config.thresholdPercent}% (base $effectiveContextLength), compressing $conversationId"
