@@ -38,7 +38,7 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      # 恢复被 MCP 推送覆盖的大文件：从 9f8861c6 取回基线，再按顺序打补丁
+      # 占位符大文件从基线提交取回真实内容，再按 13 段脚本改造
       - name: Restore patched sources
         run: |
           set -euxo pipefail
@@ -50,19 +50,12 @@ jobs:
           AR=app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingAutoRetryPage.kt
           MK=app/src/main/java/me/rerere/rikkahub/ui/pages/setting/components/MultiKeyConfig.kt
 
-          # 轮 1-5：从 9f8861c6 取回基线，按老补丁叠加
-          git checkout 9f8861c6 -- "$CS" "$WDP" "$FP"
-          perl patches/apply_patch.pl patches/0001-chatservice-compress.patch "$CS"
-          perl patches/apply_patch.pl patches/0003-chatservice-autocompress-fix.patch "$CS"
-          cat patches/0002-wdp-a.patch patches/0002-wdp-b.patch > /tmp/wdp.patch
-          perl patches/apply_patch.pl /tmp/wdp.patch "$WDP"
-          perl patches/apply_patch.pl patches/0005-fp-itemcount.patch "$FP"
-          perl patches/apply_patch.pl patches/0006-fp-standalone-shape.patch "$FP"
-          perl patches/apply_patch.pl patches/0007-fp-spacer.patch "$FP"
-          perl patches/apply_patch.pl patches/0008-fp-split-entry.patch "$FP"
-
-          # 轮 6：先回到基线，再逐段改造
-          git checkout 9f8861c6 -- "$VM" "$CP" "$AR" "$MK" 2>/dev/null || true
+          for f in "$CS" "$WDP" "$FP"; do
+            if [ "$(wc -c < "$f")" -lt 1000 ]; then
+              echo "restore baseline: $f"
+              git checkout 9f8861c6 -- "$f"
+            fi
+          done
 
           for s in 01-chatvm 02a-service 02b-service 03a-chatpage 03b-chatpage \
                    04a-filespicker 04b-filespicker 05-wdp \
