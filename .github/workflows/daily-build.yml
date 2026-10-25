@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # 检查过去 24 小时是否有新提交，避免无变化时也重复构建、占用额度
+  # 检查过往 24 小时是否有新提交，避免无变化时也重复构建。节约额度
   check:
     runs-on: ubuntu-latest
     outputs:
@@ -23,12 +23,12 @@ jobs:
             echo "should_build=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # 定时触发：仅当过去 24 小时内有新提交才构建
+          # 定时触发：仅当过往 24 小时内提交更新时才构建
           if [ -n "$(git log --since='24 hours ago' --oneline)" ]; then
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           else
             echo "should_build=false" >> "$GITHUB_OUTPUT"
-            echo "过去 24 小时无新提交，跳过构建"
+            echo "过往 24 小时无新提交，跳过构建"
           fi
 
   build:
@@ -44,6 +44,25 @@ jobs:
           fetch-depth: 0
           submodules: recursive # 拉取子模块
 
+      # ===== 修复两个被截断的大文件：从成功构建过的提交取回基线，再应用补丁 =====
+      # MCP 推送大文件时会被截断，因此 ChatService.kt / WorkspaceDetailPage.kt 的改动
+      # 以 unified diff 形式保存在 patches/ 下，构建前在此还原。任何补丁不匹配都会直接失败。
+      - name: Restore patched large sources
+        run: |
+          set -euxo pipefail
+          git show 9f8861c6:app/src/main/java/me/rerere/rikkahub/service/ChatService.kt \
+            > app/src/main/java/me/rerere/rikkahub/service/ChatService.kt
+          git show 9f8861c6:app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt \
+            > app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt
+          perl patches/apply_patch.pl patches/0001-chatservice-compress.patch \
+            app/src/main/java/me/rerere/rikkahub/service/ChatService.kt
+          cat patches/0002-wdp-a.patch patches/0002-wdp-b.patch > /tmp/wdp.patch
+          perl patches/apply_patch.pl /tmp/wdp.patch \
+            app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt
+          echo '--- 校验关键词 ---'
+          grep -c 'launchCompress' app/src/main/java/me/rerere/rikkahub/service/ChatService.kt
+          grep -c 'BulkProgressCard' app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt
+
       # 与 Android Studio 自带的 JetBrains Runtime 21 保持一致
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -54,7 +73,7 @@ jobs:
           # jetbrains 镜像需要走 GitHub API 下载，带上 token 避免限流
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # web 模块的 preBuild 会执行 `pnpm run build` 构建前端，必须准备好 Node + pnpm
+      # web 模块的 preBuild 会执行 `pnpm run build` 构建前端，必须先装好 Node + pnpm
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -67,7 +86,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: web-ui/pnpm-lock.yaml
 
-      # gradle 的 buildWebUi 任务只跑 build 不跑 install，需在此提前安装依赖
+      # gradle 的 buildWebUi 任务只跑 build 不跑 install，需要在此提前安装依赖
       - name: Install web-ui dependencies
         working-directory: web-ui
         run: pnpm install --frozen-lockfile
@@ -82,8 +101,8 @@ jobs:
 
       - name: Prepare build files
         run: |
-          # CI 不配置签名密钥：app/build.gradle.kts 在缺少签名配置时自动产出未签名 APK，由使用者自行签名
-          # 写入占位 google-services.json（仅满足 com.google.gms.google-services 插件的格式校验，Firebase 云端功能在 CI 包中不可用）
+          # CI 不配置签名：app/build.gradle.kts 在缺少签名配置时自动产出未签名 APK，由使用者自行签名
+          # 写入占位 google-services.json（仅消耗 com.google.gms:google-services 插件的格式校验，Firebase 云端功能在 CI 包中不可用）
           cat > app/google-services.json << 'GS_JSON_EOF'
           {
             "project_info": {
@@ -102,7 +121,7 @@ jobs:
                 "oauth_client": [],
                 "api_key": [
                   {
-                    "current_key": "AIzaSyCiPlaceholderKeyForUnsignedBuild00"
+                    "current_key": "AIzaCyCiPLaCeHoLdErKeYFoRuNsIgNeDbUiLd00"
                   }
                 ],
                 "services": {
@@ -116,7 +135,6 @@ jobs:
           }
           GS_JSON_EOF
 
-      # ai 模块单元测试（重试策略、多 Key 暂停规则等），挂了就中断，不带病出包
       - name: Run ai module unit tests
         run: ./gradlew :ai:test
 
@@ -125,19 +143,17 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleGithubRelease
 
-      # 把 APK 发布到一个 Prerelease，用日期时间命名以下载多个 apk，避免覆盖、避免误下
       - name: Publish nightly prerelease
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: nightly            # 固定 tag，反复覆盖同一个「最新构建」
+          tag_name: nightly
           name: Nightly Build
           prerelease: true
           body: |
             最新构建（commit `${{ github.sha }}`）
 
-            > ⚠️ 开发测试版，可能存在bug，仅供测试。
-          # mapping.txt 用于还原混淆后的堆栈，排查崩溃时与各 ABI 的 APK 一起下载
+            > ⚠️ 开发测试版，可能存在 bug，仅供测试。
           files: |
             app/build/outputs/apk/github/release/*.apk
             app/build/outputs/mapping/githubRelease/mapping.txt
