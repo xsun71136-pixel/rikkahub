@@ -1,9 +1,8 @@
 --- a/app/src/main/java/me/rerere/rikkahub/ui/components/ai/FilesPicker.kt
 +++ b/app/src/main/java/me/rerere/rikkahub/ui/components/ai/FilesPicker.kt
-@@ -313,6 +313,7 @@
+@@ -313,4 +313,5 @@
  
                      // Compress History Button
 +                    Spacer(Modifier.height(8.dp))
                      if (showCompress) {
                          SegmentedListItem(
-                             onClick = { onShowCompressDialogChange(true) },
