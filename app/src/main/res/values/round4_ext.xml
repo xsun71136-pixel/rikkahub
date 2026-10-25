@@ -1,1 +1,25 @@
-/workspace/rikkahub-master/rikkahub-master/app/src/main/res/values/round4_ext.xml
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 打磨轮 4 新增：压缩后台化与自定义上下文 / 多 Key 折叠 / 工作区批量与 ZIP -->
+<resources>
+  <string name="chat_page_compress_ctx_window">Context window</string>
+  <string name="chat_page_compress_ctx_follow">Follow model</string>
+  <string name="chat_page_compress_ctx_custom">Custom</string>
+  <string name="chat_page_compressing_banner">Compressing context…</string>
+  <string name="chat_page_compress_cancel">Cancel compression</string>
+
+  <string name="multi_key_keys_summary">%1$d available · %2$d paused · %3$d total</string>
+  <string name="multi_key_rules_summary">%1$s · %2$d rules</string>
+  <string name="multi_key_expand">Expand</string>
+  <string name="multi_key_collapse">Collapse</string>
+
+  <string name="workspace_detail_select_files">Select</string>
+  <string name="workspace_detail_zip_action">Compress to ZIP</string>
+  <string name="workspace_detail_unzip_here">Extract here</string>
+  <string name="workspace_detail_unzip_folder">Extract to folder</string>
+  <string name="workspace_detail_zip_name_label">File name</string>
+  <string name="workspace_detail_delete_batch_title">Delete %1$d items?</string>
+  <string name="workspace_detail_delete_batch_dirs">Includes folders — their contents will be deleted too</string>
+  <string name="workspace_detail_op_compressing">Compressing…</string>
+  <string name="workspace_detail_op_extracting">Extracting…</string>
+  <string name="workspace_detail_op_deleting">Deleting…</string>
+</resources>
