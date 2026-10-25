@@ -16,7 +16,7 @@
  import androidx.compose.ui.graphics.vector.ImageVector
  import androidx.compose.ui.res.stringResource
  import androidx.compose.ui.text.style.TextOverflow
-@@ -317,7 +319,15 @@
+@@ -315,7 +317,15 @@
                      Spacer(Modifier.height(8.dp))
                      if (showCompress) {
                          SegmentedListItem(
@@ -33,7 +33,7 @@
                              shapes = ListItemDefaults.segmentedShapes(index = 0, count = 1),
                              leadingContent = {
                                  Icon(
-@@ -355,6 +365,27 @@
+@@ -353,6 +363,27 @@
                                      if (contextTokens != null && contextLength != null) {
                                          ContextUsageRing(fraction = contextTokens.toFloat() / contextLength)
                                      }
