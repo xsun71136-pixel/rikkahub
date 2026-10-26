@@ -1,5 +1,15 @@
 #!/usr/bin/perl
-# 轮 8 · 18/18：两处收尾打磨
+# 轮 8 · 18/18：收尾修正与打磨（链条最后一段，专门收拾前面几段留下的小问题）
+#
+# 0) 【编译错误修正】14-autoretry.pl 把「抖动」从 switchItem 改成 FilterChip 时，
+#    照抄了开关的回调写法 onClick = { jitter -> ... }。但 FilterChip.onClick 是 () -> Unit，
+#    不像 Switch.onCheckedChange 会回传新值，于是 compileGithubReleaseKotlin 报：
+#      SettingAutoRetryPage.kt:231:47 Argument type mismatch:
+#        actual type is '(??? (Unknown type for value parameter jitter)) -> Unit',
+#        but '() -> Unit' was expected.
+#    改成 onClick = { update { it.copy(jitter = !it.jitter) } }。
+#    用 it.jitter 而不是 config.jitter：update 的回调拿到的是最新配置，
+#    连点两下不会因为捕获到旧的组合态而互相覆盖（本页其它 update 调用也是这个规矩）。
 #
 # 1) 自动重试组标题行里的总开关 Switch 会贴到卡片右边缘。
 #    CardGroup 的 title 是 Box(Modifier.padding(start = 4.dp, top = 8.dp, bottom = 8.dp))，
@@ -26,6 +36,19 @@ sub patch {
 
 my $AR  = 'app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingAutoRetryPage.kt';
 my $WDP = 'app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceDetailPage.kt';
+
+# ---- 0) FilterChip.onClick 是 () -> Unit，不吃参数 ----
+patch($AR, <<'OLD', <<'NEW', 'filterchip onclick arity');
+                                FilterChip(
+                                    selected = config.jitter,
+                                    onClick = { jitter -> update { it.copy(jitter = jitter) } },
+OLD
+                                FilterChip(
+                                    selected = config.jitter,
+                                    // FilterChip.onClick 是 () -> Unit，不像 Switch.onCheckedChange 会回传新值，
+                                    // 所以自己取反；用 it.jitter 而不是 config.jitter，连点两下不会被旧的组合态覆盖
+                                    onClick = { update { it.copy(jitter = !it.jitter) } },
+NEW
 
 # ---- 1) 组标题行给 Switch 留出右边距 ----
 patch($AR, <<'OLD', <<'NEW', 'title row end padding');
