@@ -48,6 +48,7 @@ jobs:
           CP=app/src/main/java/me/rerere/rikkahub/ui/pages/chat/ChatPage.kt
           AR=app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingAutoRetryPage.kt
           MK=app/src/main/java/me/rerere/rikkahub/ui/pages/setting/components/MultiKeyConfig.kt
+          CCD=app/src/main/java/me/rerere/rikkahub/ui/components/ai/CompressContextDialog.kt
 
           # master 上这 3 个是占位符，从基线提交取回真实内容
           for f in "$CS" "$WDP" "$FP"; do
@@ -63,7 +64,7 @@ jobs:
           cat patches/0002-wdp-a.patch patches/0002-wdp-b.patch > /tmp/wdp.patch
           perl patches/apply_patch.pl /tmp/wdp.patch "$WDP"
 
-          # 轮 6 的 14 段改造脚本
+          # 轮 6/7 的 14 段改造脚本
           for s in 01-chatvm 02a-service 02b-service 03a-chatpage 03b-chatpage \
                    04a-filespicker 04b-filespicker 05-wdp \
                    06a-autoretry 06b-autoretry 06c-autoretry 06d-autoretry \
@@ -72,12 +73,28 @@ jobs:
             bash "ci/r6/$s.sh"
           done
 
+          # 轮 8 的 7 段：全部按内容锚点定位区间，锚点对不上直接 die，不会像轮 6 那样
+          # 「括号数对得上、能编译，但底部按钮被静默挪错位置」。
+          for s in 11-wdp 12-compress 13-filespicker 14-autoretry \
+                   15-multikey-page 16-multikey-parts 17-version; do
+            echo "=== $s ==="
+            perl "ci/r8/$s.pl"
+          done
+
           echo "--- 校验 ---"
           grep -c 'compressEvents' "$VM" "$CP" "$CS"
           grep -c 'CompressEntryCard' "$FP"
+          grep -c 'chat_page_compress_entry_usage' "$FP"
           grep -c 'configEnabled' "$AR"
-          grep -c 'LargeFlexibleTopAppBar' "$MK"
+          grep -c 'setting_auto_retry_rhythm_preview' "$AR"
+          grep -c 'MultiKeyTestDialog' "$MK"
+          grep -c 'MultiKeyImportSheet' "$MK"
+          grep -c 'multi_key_batch_test' "$MK"
+          grep -c 'weight(1f, fill = false)' "$MK"
+          grep -c 'DialogProperties(usePlatformDefaultWidth = false)' "$CCD"
           grep -c 'FILES(HugeIcons.File02' "$WDP"
+          grep -c 'workspace_detail_exit_select' "$WDP"
+          grep -c '3.1.1-r8' app/build.gradle.kts
           wc -l "$CS" "$WDP" "$FP" "$VM" "$CP" "$AR" "$MK"
 
       - name: Set up JDK
