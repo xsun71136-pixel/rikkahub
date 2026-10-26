@@ -73,10 +73,10 @@ jobs:
             bash "ci/r6/$s.sh"
           done
 
-          # 轮 8 的 7 段：全部按内容锚点定位区间，锚点对不上直接 die，不会像轮 6 那样
+          # 轮 8 的 8 段：全部按内容锚点定位区间，锚点对不上直接 die，不会像轮 6 那样
           # 「括号数对得上、能编译，但底部按钮被静默挪错位置」。
           for s in 11-wdp 12-compress 13-filespicker 14-autoretry \
-                   15-multikey-page 16-multikey-parts 17-version; do
+                   15-multikey-page 16-multikey-parts 17-version 18-polish; do
             echo "=== $s ==="
             perl "ci/r8/$s.pl"
           done
@@ -94,6 +94,7 @@ jobs:
           grep -c 'DialogProperties(usePlatformDefaultWidth = false)' "$CCD"
           grep -c 'FILES(HugeIcons.File02' "$WDP"
           grep -c 'workspace_detail_exit_select' "$WDP"
+          grep -c 'zipNameTemplate.format' "$WDP"
           grep -c '3.1.1-r8' app/build.gradle.kts
           wc -l "$CS" "$WDP" "$FP" "$VM" "$CP" "$AR" "$MK"
 
