@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 打磨轮 8 新增：工作区文件操作 / 压缩历史宽度 / 自动重试紧凑化 / 多 Key 半屏页 -->
+<resources>
+
+  <!-- 工作区：多选工具栏、导出与 ZIP 命名（原来是硬编码中文，统一走资源） -->
+  <string name="workspace_detail_exit_select">退出多选</string>
+  <string name="workspace_detail_select_all">全选</string>
+  <string name="workspace_detail_unselect_all">取消全选</string>
+  <string name="workspace_detail_long_press_select">选择</string>
+  <string name="workspace_detail_export_action_count">导出 (%1$d)</string>
+  <string name="workspace_detail_export_result_title">导出结果</string>
+  <string name="workspace_detail_exporting_progress">正在导出 %1$d/%2$d</string>
+  <string name="workspace_detail_zip_default_name">归档-%1$s.zip</string>
+  <string name="workspace_detail_zip_fallback_name">archive.zip</string>
+
+  <!-- 压缩历史：入口卡片右侧收窄后，用量挪到说明行 -->
+  <string name="chat_page_compress_entry_usage">已用 %1$s / %2$s · %3$d 条消息</string>
+  <string name="chat_page_compress_percent">%1$d%%</string>
+  <string name="chat_page_compress_ctx_custom_hint">单位 K：填 128 表示 128K tokens</string>
+
+  <!-- 自动重试：紧凑化后的合并分组与单行节奏预览 -->
+  <string name="setting_auto_retry_rules_title">触发 / 停止条件</string>
+  <string name="setting_auto_retry_rhythm_preview">%1$d 次 · 共 %2$s · %3$s</string>
+  <string name="setting_auto_retry_stop_hint">命中任一即停止重试</string>
+  <string name="setting_auto_retry_stop_preview">命中任一即停止重试：%1$s</string>
+
+  <!-- 多 Key：半屏页底部操作条、批量导入、批量管理、批量测试 -->
+  <string name="multi_key_batch_test">批量测试</string>
+  <string name="multi_key_batch_import">批量导入</string>
+  <string name="multi_key_import_title">批量导入密钥</string>
+  <string name="multi_key_import_hint">粘贴一串密钥，自动按换行、逗号或空格分隔并去重</string>
+  <string name="multi_key_import_placeholder">sk-…（可一次粘贴多个）</string>
+  <string name="multi_key_import_parsed">识别到 %1$d 个 · 新增 %2$d 个 · 重复 %3$d 个</string>
+  <string name="multi_key_import_mode_append">追加</string>
+  <string name="multi_key_import_mode_replace">替换全部</string>
+  <string name="multi_key_import_replace_warn">会用解析出的密钥替换现有全部密钥</string>
+  <string name="multi_key_import_action">导入 %1$d 个</string>
+  <string name="multi_key_clear_all">清空</string>
+  <string name="multi_key_clear_all_title">清空全部密钥？</string>
+  <string name="multi_key_clear_all_message">将删除这 %1$d 个密钥，此操作无法撤销。</string>
+  <string name="multi_key_copy">复制密钥</string>
+  <string name="multi_key_copied">密钥已复制</string>
+  <string name="multi_key_test_progress">已测 %1$d/%2$d</string>
+  <string name="multi_key_test_summary">可用 %1$d · 警告 %2$d · 失败 %3$d</string>
+  <string name="multi_key_test_retry_failed">只重测失败项</string>
+  <string name="multi_key_test_remove_failed">删除失败项 (%1$d)</string>
+
+</resources>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 打磨轮 8 新增：工作区文件操作 / 压缩历史宽度 / 自动重试紧凑化 / 多 Key 半屏页 -->
+<resources>
+
+  <!-- Workspace: multi-select toolbar, export and ZIP naming (were hardcoded literals) -->
+  <string name="workspace_detail_exit_select">Exit selection</string>
+  <string name="workspace_detail_select_all">Select all</string>
+  <string name="workspace_detail_unselect_all">Clear selection</string>
+  <string name="workspace_detail_long_press_select">Select</string>
+  <string name="workspace_detail_export_action_count">Export (%1$d)</string>
+  <string name="workspace_detail_export_result_title">Export result</string>
+  <string name="workspace_detail_exporting_progress">Exporting %1$d/%2$d</string>
+  <string name="workspace_detail_zip_default_name">archive-%1$s.zip</string>
+  <string name="workspace_detail_zip_fallback_name">archive.zip</string>
+
+  <!-- Compress history: entry card right side narrowed, usage moved to the supporting line -->
+  <string name="chat_page_compress_entry_usage">Used %1$s of %2$s · %3$d messages</string>
+  <string name="chat_page_compress_percent">%1$d%%</string>
+  <string name="chat_page_compress_ctx_custom_hint">In K — 128 means 128K tokens</string>
+
+  <!-- Auto retry: merged condition group and single-line rhythm preview -->
+  <string name="setting_auto_retry_rules_title">Trigger / stop conditions</string>
+  <string name="setting_auto_retry_rhythm_preview">%1$d retries · %2$s total · %3$s</string>
+  <string name="setting_auto_retry_stop_hint">Stops retrying when any of these matches</string>
+  <string name="setting_auto_retry_stop_preview">Stops retrying when any of these matches: %1$s</string>
+
+  <!-- Multi key: half-screen page action bar, bulk import, bulk management, batch test -->
+  <string name="multi_key_batch_test">Test all</string>
+  <string name="multi_key_batch_import">Bulk import</string>
+  <string name="multi_key_import_title">Import keys</string>
+  <string name="multi_key_import_hint">Paste a bunch of keys — split by newline, comma or space, duplicates removed</string>
+  <string name="multi_key_import_placeholder">sk-… (paste as many as you like)</string>
+  <string name="multi_key_import_parsed">%1$d found · %2$d new · %3$d duplicates</string>
+  <string name="multi_key_import_mode_append">Append</string>
+  <string name="multi_key_import_mode_replace">Replace all</string>
+  <string name="multi_key_import_replace_warn">Replaces every existing key with the parsed ones</string>
+  <string name="multi_key_import_action">Import %1$d</string>
+  <string name="multi_key_clear_all">Clear</string>
+  <string name="multi_key_clear_all_title">Clear all keys?</string>
+  <string name="multi_key_clear_all_message">This removes all %1$d keys and cannot be undone.</string>
+  <string name="multi_key_copy">Copy key</string>
+  <string name="multi_key_copied">Key copied</string>
+  <string name="multi_key_test_progress">Tested %1$d/%2$d</string>
+  <string name="multi_key_test_summary">%1$d ok · %2$d warn · %3$d failed</string>
+  <string name="multi_key_test_retry_failed">Retest failed only</string>
+  <string name="multi_key_test_remove_failed">Remove failed (%1$d)</string>
+
+</resources>
